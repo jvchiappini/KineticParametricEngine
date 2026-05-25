@@ -54,3 +54,48 @@ impl Default for MaterialGenerator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kpe_schema::material::*;
+
+    fn make_material() -> ProceduralMaterial {
+        ProceduralMaterial {
+            id: "test".to_string(),
+            base: MaterialBase { color: "#FF0000".to_string(), roughness: 0.5, metalness: 0.0 },
+            uv_mode: UvMode::WorldScale,
+            uv_scale: [1.0, 1.0],
+            instance_vars: std::collections::HashMap::new(),
+            layers: vec![],
+        }
+    }
+
+    #[test]
+    fn test_generates_texture_correct_size() {
+        let gen = MaterialGenerator::new();
+        let material = make_material();
+        let pixels = gen.generate_texture(&material, 4, 4);
+        assert_eq!(pixels.len(), 4 * 4 * 4);
+    }
+
+    #[test]
+    fn test_generates_rgba_pixels() {
+        let gen = MaterialGenerator::new();
+        let material = make_material();
+        let pixels = gen.generate_texture(&material, 2, 2);
+        assert_eq!(pixels.len(), 16);
+        for chunk in pixels.chunks(4) {
+            assert_eq!(chunk[3], 255);
+        }
+    }
+
+    #[test]
+    fn test_hex_color_parsing() {
+        let gen = MaterialGenerator::new();
+        let [r, g, b] = gen.parse_hex_color("#FF8000");
+        assert!((r - 255.0).abs() < 1.0);
+        assert!((g - 128.0).abs() < 1.0);
+        assert!((b - 0.0).abs() < 1.0);
+    }
+}

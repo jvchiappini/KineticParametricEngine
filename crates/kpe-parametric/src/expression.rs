@@ -71,16 +71,18 @@ impl ExpressionEvaluator {
 
     fn eval_arithmetic(&self, expr: &str) -> Result<f64, String> {
         let expr = expr
-            .replace("f64_floor(", "(")
-            .replace("f64_ceil(", "(")
-            .replace("f64_round(", "(")
-            .replace("f64_sqrt(", "(")
-            .replace("f64_abs(", "(");
+            .replace("f64_floor(", "floor(")
+            .replace("f64_ceil(", "ceil(")
+            .replace("f64_round(", "round(")
+            .replace("f64_sqrt(", "sqrt(")
+            .replace("f64_abs(", "abs(");
 
-        let tokens: Vec<&str> = expr.split_whitespace().collect();
-        if tokens.len() == 1 {
-            return tokens[0].parse::<f64>()
-                .map_err(|_| format!("Cannot parse number: {}", tokens[0]));
+        let trimmed = expr.trim();
+        if !trimmed.contains(' ') && !trimmed.contains('+') && !trimmed.contains('-')
+            && !trimmed.contains('*') && !trimmed.contains('/') && !trimmed.contains('(')
+        {
+            return trimmed.parse::<f64>()
+                .map_err(|_| format!("Cannot parse number: {trimmed}"));
         }
 
         meval::eval_str(expr)
@@ -91,5 +93,69 @@ impl ExpressionEvaluator {
 impl Default for ExpressionEvaluator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params() -> HashMap<String, f64> {
+        let mut m = HashMap::new();
+        m.insert("width".to_string(), 600.0);
+        m.insert("thickness".to_string(), 18.0);
+        m.insert("height".to_string(), 2100.0);
+        m
+    }
+
+    #[test]
+    fn test_literal_number() {
+        let eval = ExpressionEvaluator::new();
+        assert_eq!(eval.evaluate("42.5", &HashMap::new(), &HashMap::new()).unwrap(), 42.5);
+    }
+
+    #[test]
+    fn test_param_reference() {
+        let eval = ExpressionEvaluator::new();
+        let p = params();
+        assert_eq!(eval.evaluate("params.width", &p, &HashMap::new()).unwrap(), 600.0);
+    }
+
+    #[test]
+    fn test_simple_arithmetic() {
+        let eval = ExpressionEvaluator::new();
+        let p = params();
+        let result = eval.evaluate("params.width - 2 * params.thickness", &p, &HashMap::new()).unwrap();
+        assert!((result - 564.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_variable_reference() {
+        let eval = ExpressionEvaluator::new();
+        let mut vars = HashMap::new();
+        vars.insert("inner_width".to_string(), 564.0);
+        assert_eq!(eval.evaluate("inner_width", &HashMap::new(), &vars).unwrap(), 564.0);
+    }
+
+    #[test]
+    fn test_math_floor() {
+        let eval = ExpressionEvaluator::new();
+        let p = params();
+        let result = eval.evaluate("Math.floor(params.height / 32)", &p, &HashMap::new()).unwrap();
+        assert_eq!(result, 65.0);
+    }
+
+    #[test]
+    fn test_division() {
+        let eval = ExpressionEvaluator::new();
+        let p = params();
+        let result = eval.evaluate("params.width / 2.0", &p, &HashMap::new()).unwrap();
+        assert_eq!(result, 300.0);
+    }
+
+    #[test]
+    fn test_invalid_expr() {
+        let eval = ExpressionEvaluator::new();
+        assert!(eval.evaluate("undefined_var", &HashMap::new(), &HashMap::new()).is_err());
     }
 }

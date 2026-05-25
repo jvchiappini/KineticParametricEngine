@@ -44,31 +44,100 @@ impl ConditionEvaluator {
             return false;
         }
 
-        let parts: Vec<&str> = expr.splitn(3, |c| c == '>' || c == '<'
-            || c == '=' || c == '!').collect();
+        let ops = [">=", "<=", "==", "!=", ">", "<"];
+        let mut found_op = None;
+        let mut op_pos = None;
 
-        if parts.len() < 3 {
-            let op_pos = expr.find(|c: char| c == '>' || c == '<'
-                || (c == '=' && expr.contains("=="))
-                || (c == '!' && expr.contains("!=")));
-            return op_pos.is_some();
+        for op in &ops {
+            if let Some(pos) = expr.find(op) {
+                found_op = Some(*op);
+                op_pos = Some(pos);
+                break;
+            }
         }
 
-        let left = parts[0].trim().parse::<f64>().unwrap_or(0.0);
-        let right = parts[2].trim().parse::<f64>().unwrap_or(0.0);
+        let (op, pos) = match (found_op, op_pos) {
+            (Some(op), Some(pos)) => (op, pos),
+            _ => return false,
+        };
 
-        if expr.contains(">=") { left >= right }
-        else if expr.contains("<=") { left <= right }
-        else if expr.contains("==") { (left - right).abs() < 1e-9 }
-        else if expr.contains("!=") { (left - right).abs() > 1e-9 }
-        else if expr.contains('>') { left > right }
-        else if expr.contains('<') { left < right }
-        else { false }
+        let left_str = expr[..pos].trim();
+        let right_str = expr[pos + op.len()..].trim();
+
+        let left = left_str.parse::<f64>().unwrap_or(0.0);
+        let right = right_str.parse::<f64>().unwrap_or(0.0);
+
+        match op {
+            ">=" => left >= right,
+            "<=" => left <= right,
+            "==" => (left - right).abs() < 1e-9,
+            "!=" => (left - right).abs() > 1e-9,
+            ">"  => left > right,
+            "<"  => left < right,
+            _ => false,
+        }
     }
 }
 
 impl Default for ConditionEvaluator {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn params() -> HashMap<String, f64> {
+        let mut m = HashMap::new();
+        m.insert("width".to_string(), 600.0);
+        m.insert("height".to_string(), 2100.0);
+        m
+    }
+
+    #[test]
+    fn test_greater_than_true() {
+        let eval = ConditionEvaluator::new();
+        assert!(eval.evaluate("params.width > 500", &params(), &HashMap::new()));
+    }
+
+    #[test]
+    fn test_greater_than_false() {
+        let eval = ConditionEvaluator::new();
+        assert!(!eval.evaluate("params.width > 700", &params(), &HashMap::new()));
+    }
+
+    #[test]
+    fn test_less_than() {
+        let eval = ConditionEvaluator::new();
+        assert!(eval.evaluate("params.width < 700", &params(), &HashMap::new()));
+    }
+
+    #[test]
+    fn test_equals() {
+        let eval = ConditionEvaluator::new();
+        assert!(eval.evaluate("params.width == 600", &params(), &HashMap::new()));
+    }
+
+    #[test]
+    fn test_not_equals() {
+        let eval = ConditionEvaluator::new();
+        assert!(eval.evaluate("params.width != 500", &params(), &HashMap::new()));
+    }
+
+    #[test]
+    fn test_greater_equal() {
+        let eval = ConditionEvaluator::new();
+        assert!(eval.evaluate("params.width >= 600", &params(), &HashMap::new()));
+        assert!(eval.evaluate("params.width >= 500", &params(), &HashMap::new()));
+        assert!(!eval.evaluate("params.width >= 700", &params(), &HashMap::new()));
+    }
+
+    #[test]
+    fn test_boolean_literal() {
+        let eval = ConditionEvaluator::new();
+        assert!(eval.evaluate("true", &HashMap::new(), &HashMap::new()));
+        assert!(!eval.evaluate("false", &HashMap::new(), &HashMap::new()));
     }
 }

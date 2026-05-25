@@ -81,3 +81,86 @@ impl Default for Solver {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kpe_schema::block::*;
+
+    fn make_test_recipe() -> KPERecipe {
+        let mut recipe = KPERecipe::default();
+        let mut params = HashMap::new();
+        params.insert("width".to_string(), ParamSchema {
+            param_type: ParamType::Number,
+            default: serde_json::json!(600.0),
+            min: Some(200.0),
+            max: Some(1200.0),
+            unit: Some("mm".to_string()),
+            options: None,
+        });
+        params.insert("thickness".to_string(), ParamSchema {
+            param_type: ParamType::Number,
+            default: serde_json::json!(18.0),
+            min: Some(9.0),
+            max: Some(36.0),
+            unit: Some("mm".to_string()),
+            options: None,
+        });
+        let mut variables = HashMap::new();
+        variables.insert("inner_width".to_string(), "params.width - 2 * params.thickness".to_string());
+        let mut rules = Vec::new();
+        rules.push(Rule {
+            when: "params.width > 800".to_string(),
+            then: vec![],
+        });
+        recipe.blocks.insert("panel".to_string(), BlockDefinition {
+            id: "panel".to_string(),
+            label: "Panel".to_string(),
+            params,
+            variables,
+            rules,
+            joints: HashMap::new(),
+            geometry: None,
+            material: None,
+        });
+        recipe
+    }
+
+    #[test]
+    fn test_solver_resolves_params() {
+        let solver = Solver::new();
+        let recipe = make_test_recipe();
+        let resolved = solver.resolve(&recipe).unwrap();
+        let panel_params = resolved.resolved_params.get("panel").unwrap();
+        assert!((panel_params["width"] - 600.0).abs() < 1e-9);
+        assert!((panel_params["thickness"] - 18.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_solver_resolves_variables() {
+        let solver = Solver::new();
+        let recipe = make_test_recipe();
+        let resolved = solver.resolve(&recipe).unwrap();
+        let panel_vars = resolved.resolved_variables.get("panel").unwrap();
+        assert!((panel_vars["inner_width"] - 564.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_solver_rule_inactive() {
+        let solver = Solver::new();
+        let recipe = make_test_recipe();
+        let resolved = solver.resolve(&recipe).unwrap();
+        assert!(resolved.active_rules.is_empty());
+    }
+
+    #[test]
+    fn test_solver_rule_active_when_condition_met() {
+        let solver = Solver::new();
+        let mut recipe = make_test_recipe();
+        if let Some(block) = recipe.blocks.get_mut("panel") {
+            block.params.get_mut("width").unwrap().default = serde_json::json!(1000.0);
+        }
+        let resolved = solver.resolve(&recipe).unwrap();
+        assert_eq!(resolved.active_rules.len(), 1);
+    }
+}

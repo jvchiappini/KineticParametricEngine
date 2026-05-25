@@ -61,3 +61,54 @@ impl Default for CutListGenerator {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kpe_schema::geometry::{GeometryNode, GeometryNodeType, BoxDef};
+
+    #[test]
+    fn test_generates_cutlist_from_box() {
+        let generator = CutListGenerator::new();
+        let scene = GeometryNode {
+            id: "test".to_string(),
+            node_type: GeometryNodeType::Box(BoxDef { width: 100.0, height: 200.0, depth: 50.0 }),
+            transform: None,
+            children: vec![],
+            operations: vec![],
+        };
+        let cutlist = generator.generate(&scene);
+        assert_eq!(cutlist.pieces.len(), 1);
+        assert_eq!(cutlist.pieces[0].width, 100.0);
+        assert_eq!(cutlist.pieces[0].height, 200.0);
+    }
+
+    #[test]
+    fn test_generates_cutlist_from_compound() {
+        let generator = CutListGenerator::new();
+        let scene = GeometryNode {
+            id: "root".to_string(),
+            node_type: GeometryNodeType::Compound,
+            transform: None,
+            children: vec![
+                GeometryNode {
+                    id: "child1".to_string(),
+                    node_type: GeometryNodeType::Box(BoxDef { width: 50.0, height: 30.0, depth: 10.0 }),
+                    transform: None,
+                    children: vec![],
+                    operations: vec![],
+                },
+                GeometryNode {
+                    id: "child2".to_string(),
+                    node_type: GeometryNodeType::Box(BoxDef { width: 20.0, height: 40.0, depth: 10.0 }),
+                    transform: None,
+                    children: vec![],
+                    operations: vec![],
+                },
+            ],
+            operations: vec![],
+        };
+        let cutlist = generator.generate(&scene);
+        assert_eq!(cutlist.pieces.len(), 2);
+    }
+}

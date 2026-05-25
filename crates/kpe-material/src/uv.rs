@@ -53,3 +53,30 @@ impl Default for UvMapper {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use kpe_schema::material::UvMode;
+
+    #[test]
+    fn test_world_scale_uvs() {
+        let mapper = UvMapper::new();
+        let verts = [[0.0, 0.0, 0.0], [100.0, 0.0, 0.0], [0.0, 200.0, 0.0]];
+        let uvs = mapper.compute_uvs(&verts, &UvMode::WorldScale, [50.0, 50.0]);
+        assert!((uvs[0][0] - 0.0).abs() < 1e-9);
+        assert!((uvs[1][0] - 2.0).abs() < 1e-9);
+        assert!((uvs[2][1] - 4.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_object_relative_uvs() {
+        let mapper = UvMapper::new();
+        let verts = [[10.0, 20.0, 0.0], [30.0, 20.0, 0.0], [10.0, 60.0, 0.0]];
+        let uvs = mapper.compute_uvs(&verts, &UvMode::ObjectRelative, [1.0, 1.0]);
+        assert!((uvs[0][0] - 0.0).abs() < 1e-9);
+        assert!((uvs[0][1] - 0.0).abs() < 1e-9);
+        assert!((uvs[1][0] - 1.0).abs() < 1e-9);
+        assert!((uvs[2][1] - 1.0).abs() < 1e-9);
+    }
+}
