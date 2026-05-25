@@ -1,0 +1,18 @@
+[package]
+name = "kpe-wasm"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+kpe-schema = { path = "../kpe-schema" }
+kpe-parametric = { path = "../kpe-parametric" }
+kpe-geometry = { path = "../kpe-geometry" }
+kpe-fabrication = { path = "../kpe-fabrication" }
+kpe-material = { path = "../kpe-material" }
+wasm-bindgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true

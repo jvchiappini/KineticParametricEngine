@@ -1,0 +1,11 @@
+[package]
+name = "kpe-material"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kpe-schema = { path = "../kpe-schema" }
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

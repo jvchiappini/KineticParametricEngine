@@ -1,0 +1,11 @@
+[package]
+name = "kpe-geometry"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kpe-schema = { path = "../kpe-schema" }
+glam.workspace = true
+serde.workspace = true
+thiserror.workspace = true

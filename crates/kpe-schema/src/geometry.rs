@@ -1,0 +1,106 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeometryNode {
+    pub id: String,
+    pub node_type: GeometryNodeType,
+    pub transform: Option<TransformOp>,
+    pub children: Vec<GeometryNode>,
+    pub operations: Vec<CsgOperation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum GeometryNodeType {
+    Box(BoxDef),
+    Cylinder(CylinderDef),
+    Sphere(SphereDef),
+    Mesh(MeshDef),
+    SketchProfile(String),
+    Compound,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BoxDef {
+    pub width: f64,
+    pub height: f64,
+    pub depth: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CylinderDef {
+    pub radius: f64,
+    pub height: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SphereDef {
+    pub radius: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MeshDef {
+    pub vertices: Vec<[f64; 3]>,
+    pub indices: Vec<[u32; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransformOp {
+    pub translation: Option<[f64; 3]>,
+    pub rotation: Option<[f64; 3]>,
+    pub scale: Option<[f64; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CsgOperation {
+    pub op_type: CsgOpType,
+    pub tool_id: String,
+    pub tool_transform: Option<TransformOp>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum CsgOpType {
+    Union,
+    Subtract,
+    Intersect,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GeometryOutput {
+    pub brep: BRepModel,
+    pub mesh: TriangleMesh,
+    pub world_matrices: HashMap<String, [f64; 16]>,
+    pub outline_2d: Sketch2D,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TriangleMesh {
+    pub vertices: Vec<[f64; 3]>,
+    pub normals: Vec<[f64; 3]>,
+    pub uvs: Vec<[f64; 2]>,
+    pub triangles: Vec<[u32; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BRepModel {
+    pub solids: Vec<Solid>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Solid {
+    pub id: String,
+    pub faces: Vec<Face>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Face {
+    pub id: String,
+    pub source_solid: Option<String>,
+    pub source_face: Option<String>,
+    pub operation: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Sketch2D {
+    pub contours: Vec<Vec<[f64; 2]>>,
+}

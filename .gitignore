@@ -1,0 +1,10 @@
+/target/
+*.pyc
+__pycache__/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+*~
+*.kpe.json
+/node_modules/
