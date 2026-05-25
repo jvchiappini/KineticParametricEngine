@@ -6,7 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.75+-orange.svg)](https://rustup.rs)
 [![WASM](https://img.shields.io/badge/Target-WASM%20%2B%20Native-green.svg)]()
-[![Status](https://img.shields.io/badge/Status-Early%20Development-yellow.svg)]()
+[![CI](https://img.shields.io/github/actions/workflow/status/jvchiappini/KineticParametricEngine/ci.yml?branch=main)]()
+[![Status](https://img.shields.io/badge/Status-Alpha-yellow.svg)]()
 
 ---
 
@@ -84,8 +85,13 @@ kpe/
 │   ├── kpe-geometry/            ← High-level geometric operations
 │   │   ├── src/
 │   │   │   ├── lib.rs
-│   │   │   ├── brep.rs          ← B-Rep representation (faces, edges, vertices)
-│   │   │   ├── csg.rs           ← Boolean operations via Manifold
+│   │   │   ├── brep.rs          ← B-Rep half-edge skeleton (faces, edges, vertices)
+│   │   │   ├── csg.rs           ← Boolean operations (Union / Subtract / Intersect)
+│   │   │   ├── predicates.rs    ← orient2d/orient3d exact geometric predicates
+│   │   │   ├── intersection.rs  ← Triangle-triangle intersection (Möller 1997)
+│   │   │   ├── bvh.rs           ← AABB BVH with SAH for spatial acceleration
+│   │   │   ├── classify.rs      ← Ray-casting winding number inside/outside test
+│   │   │   ├── stitch.rs        ← Vertex welding and manifold stitching
 │   │   │   ├── transform.rs     ← Transformation matrices, non-baked
 │   │   │   ├── joint.rs         ← Joint movement logic
 │   │   │   ├── mesh.rs          ← Triangulation for rendering
@@ -182,8 +188,8 @@ cargo install tauri-cli
 ### Clone and Compile Core
 
 ```bash
-git clone https://github.com/your-user/kpe.git
-cd kpe
+git clone https://github.com/jvchiappini/KineticParametricEngine.git
+cd KineticParametricEngine
 
 # Compile all crates
 cargo build
@@ -229,7 +235,7 @@ User defines a KPERecipe (JSON)
             ▼
     kpe-geometry
     ├── Builds scene tree with matrices (non-baked)
-    ├── Applies CSG operations via Manifold
+    ├── Applies CSG operations (custom pipeline: BVH → Möller → Classify → Stitch)
     ├── Resolves joints and constraints
     └── Produces GeometryOutput { brep, mesh, world_matrices }
             │
@@ -470,13 +476,15 @@ Documented decisions:
 
 ## Roadmap
 
-### Phase 1 — Parametric Core (Current)
-- [ ] `kpe-schema`: Complete base types
-- [ ] `kpe-parametric`: Expression and condition evaluator
-- [ ] `kpe-parametric`: Rule engine (conditional logic)
-- [ ] `kpe-geometry`: Basic primitives (box, cylinder, sphere)
-- [ ] `kpe-geometry`: CSG operations with Manifold
+### Phase 1 — Parametric Core ✅
+- [x] `kpe-schema`: Complete base types
+- [x] `kpe-parametric`: Expression and condition evaluator
+- [x] `kpe-parametric`: Rule engine (conditional logic)
+- [x] `kpe-geometry`: Basic primitives (box, cylinder, sphere)
+- [x] `kpe-geometry`: CSG pipeline (BVH + Möller + Classify + Stitch)
 - [ ] `kpe-wasm`: Basic browser bindings
+- [ ] Unit tests across all crates
+- [ ] Triangle splitting for exact CSG boundaries
 
 ### Phase 2 — Fabrication
 - [ ] `kpe-fabrication`: Cut list generation
@@ -528,14 +536,17 @@ Every catalog block is a `.kpe.json` file that follows the exact same schema as 
 
 ## Contributing
 
-This is a personal project that will eventually become open source. For now, external PRs are not accepted, but if you find the project useful, feel free to open an issue with feedback.
+PRs are welcome. Before submitting:
 
-When contributions open, the rules will be:
 1. Every schema change requires an approved ADR.
 2. All new code requires tests.
 3. Every `pub` item requires a docstring.
 4. `check_modularity.py` must pass (no files > 300 lines).
 5. `doc_coverage.py` must pass (100% of pub items documented).
+6. All Wiki documentation must be written in English.
+
+Open an issue first if you're planning significant changes — especially
+to `kpe-schema` or the CSG pipeline.
 
 ---
 
@@ -545,4 +556,4 @@ MIT — do whatever you want, with attribution.
 
 ---
 
-*KPE is a personal project under active development. The schema may change without notice until reaching v1.0.*
+*KPE is in alpha. The schema may change without notice until reaching v1.0.*
