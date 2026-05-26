@@ -16,7 +16,8 @@ pub enum GeometryNodeType {
     Cylinder(CylinderDef),
     Sphere(SphereDef),
     Mesh(MeshDef),
-    SketchProfile(String),
+    Sketch(SketchDef),
+    Extrude(ExtrudeDef),
     Compound,
 }
 
@@ -42,6 +43,35 @@ pub struct SphereDef {
 pub struct MeshDef {
     pub vertices: Vec<[f64; 3]>,
     pub indices: Vec<[u32; 3]>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SketchDef {
+    pub primitives: Vec<SketchPrimitive>,
+    pub plane: SketchPlane,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SketchPlane {
+    XY,
+    XZ,
+    YZ,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SketchPrimitive {
+    Rectangle { x: f64, y: f64, width: f64, height: f64 },
+    Circle { cx: f64, cy: f64, radius: f64, segments: Option<u32> },
+    Polygon { points: Vec<[f64; 2]> },
+    Arc { cx: f64, cy: f64, radius: f64, start_angle: f64, end_angle: f64, segments: Option<u32> },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExtrudeDef {
+    pub sketch_id: String,
+    pub distance: f64,
+    pub direction: Option<[f64; 3]>,
+    pub cap: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

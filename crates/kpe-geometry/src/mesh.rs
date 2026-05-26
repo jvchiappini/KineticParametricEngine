@@ -1,6 +1,7 @@
 use kpe_schema::geometry::{
-    BoxDef, CylinderDef, SphereDef, GeometryNode, GeometryNodeType, TriangleMesh,
+    BoxDef, CylinderDef, SphereDef, GeometryNode, GeometryNodeType, TriangleMesh, SketchDef, ExtrudeDef,
 };
+use crate::extrude::extrude_sketch;
 
 pub struct MeshBuilder;
 
@@ -20,12 +21,23 @@ impl MeshBuilder {
                 uvs: vec![],
                 triangles: mesh_def.indices.clone(),
             },
-            GeometryNodeType::SketchProfile(_) => TriangleMesh {
-                vertices: vec![],
-                normals: vec![],
-                uvs: vec![],
-                triangles: vec![],
-            },
+            GeometryNodeType::Sketch(sketch_def) => {
+                let contours = crate::sketch::tessellate_sketch(sketch_def);
+                let mut verts = Vec::new();
+                for c in &contours {
+                    for p in c {
+                        verts.push([p.x, p.y, 0.0]);
+                    }
+                }
+                TriangleMesh { vertices: verts, normals: vec![], uvs: vec![], triangles: vec![] }
+            }
+            GeometryNodeType::Extrude(extrude_def) => {
+                let sketch = match find_sketch(node, extrude_def) {
+                    Some(s) => s,
+                    None => return TriangleMesh { vertices: vec![], normals: vec![], uvs: vec![], triangles: vec![] },
+                };
+                extrude_sketch(sketch, extrude_def)
+            }
             GeometryNodeType::Compound => {
                 let mut verts = Vec::new();
                 let mut tris = Vec::new();
@@ -165,4 +177,18 @@ impl Default for MeshBuilder {
     fn default() -> Self {
         Self::new()
     }
+}
+
+fn find_sketch<'a>(node: &'a GeometryNode, extrude: &ExtrudeDef) -> Option<&'a SketchDef> {
+    if let GeometryNodeType::Sketch(sketch) = &node.node_type {
+        if node.id == extrude.sketch_id {
+            return Some(sketch);
+        }
+    }
+    for child in &node.children {
+        if let Some(found) = find_sketch(child, extrude) {
+            return Some(found);
+        }
+    }
+    None
 }

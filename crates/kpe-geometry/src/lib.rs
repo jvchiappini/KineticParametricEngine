@@ -4,6 +4,7 @@ pub mod transform;
 pub mod joint;
 pub mod mesh;
 pub mod sketch;
+pub mod extrude;
 pub mod predicates;
 pub mod intersection;
 pub mod bvh;

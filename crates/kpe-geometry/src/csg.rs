@@ -47,7 +47,7 @@ fn triangle_mesh_to_csg(mesh: &TriangleMesh) -> CsgMesh {
 
             // Create/Retrieve shared vertices
             for &p in &[a, b, c] {
-                let bits = [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
+                let _bits = [p.x.to_bits(), p.y.to_bits(), p.z.to_bits()];
                 // We use vertex normals consistent with the face for now (flat input)
                 // but sharing the vertex position is key for BSP.
                 let v = Vertex::new(p, normal);
@@ -132,19 +132,6 @@ fn empty_mesh() -> TriangleMesh {
     }
 }
 
-fn flip_triangles(mesh: &TriangleMesh) -> TriangleMesh {
-    let mut tris = mesh.triangles.clone();
-    for t in &mut tris {
-        t.swap(1, 2);
-    }
-    TriangleMesh {
-        vertices: mesh.vertices.clone(),
-        normals: mesh.normals.clone(),
-        uvs: mesh.uvs.clone(),
-        triangles: tris,
-    }
-}
-
 impl CsgKernel {
     pub fn new() -> Self {
         Self
@@ -156,33 +143,20 @@ impl CsgKernel {
         mesh_b: &TriangleMesh,
         operation: &CsgOperation,
     ) -> TriangleMesh {
-        // Fast-path: handle empty operands without entering the CSG kernel.
-        if mesh_a.triangles.is_empty() {
-            return match operation.op_type {
-                CsgOpType::Union => mesh_b.clone(),
-                _ => empty_mesh(),
-            };
-        }
-        if mesh_b.triangles.is_empty() {
-            return match operation.op_type {
-                CsgOpType::Intersect => empty_mesh(),
-                _ => mesh_a.clone(),
-            };
-        }
-
-        if operation.op_type == CsgOpType::Intersect {
-            let csg_a = triangle_mesh_to_csg(mesh_a);
-            let csg_b = triangle_mesh_to_csg(mesh_b);
-            return csg_to_triangle_mesh(csg_a.intersection(&csg_b));
-        }
-
         let csg_a = triangle_mesh_to_csg(mesh_a);
         let csg_b = triangle_mesh_to_csg(mesh_b);
 
+        if csg_a.polygons.is_empty() || csg_b.polygons.is_empty() {
+            return match operation.op_type {
+                CsgOpType::Union | CsgOpType::Subtract => mesh_a.clone(),
+                CsgOpType::Intersect => empty_mesh(),
+            };
+        }
+
         let result = match operation.op_type {
-            CsgOpType::Union     => csg_a.union(&csg_b),
-            CsgOpType::Subtract  => csg_a.difference(&csg_b),
-            _ => unreachable!(),
+            CsgOpType::Union => csg_a.union(&csg_b),
+            CsgOpType::Subtract => csg_a.difference(&csg_b),
+            CsgOpType::Intersect => csg_a.intersection(&csg_b),
         };
 
         csg_to_triangle_mesh(result)
@@ -291,6 +265,18 @@ mod tests {
         let mesh_b = make_box_at(10.0, 10.0, 10.0, 1.0, 1.0, 1.0);
         let result = kernel.intersect(&mesh_a, &mesh_b);
         assert!(result.triangles.is_empty());
+    }
+
+    #[test]
+    fn test_union_adjacent_boxes() {
+        let kernel = CsgKernel::new();
+        let mesh_a = make_box_at(0.0, 0.0, 0.0, 2.0, 1.0, 1.0);
+        let mesh_b = make_box_at(2.0, 0.0, 0.0, 2.0, 1.0, 1.0);
+        let result = kernel.union(&mesh_a, &mesh_b);
+        let joint = mesh_a.triangles.len() + mesh_b.triangles.len();
+        assert!(result.triangles.len() <= joint);
+        assert!(result.triangles.len() >= mesh_a.triangles.len());
+        assert!(!result.triangles.is_empty());
     }
 
     #[test]
