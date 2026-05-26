@@ -93,13 +93,11 @@ const RECIPES: Record<string, { label: string; recipe: any }> = {
                 {
                   Polygon: {
                     points: [
+                      [0, 0],
                       [0.3, 0], [0.3, 0.5], [0.5, 0.7], [0.5, 1.5],
                       [0.3, 1.7], [0.3, 2.5], [0.4, 2.7], [0.4, 3.5],
                       [0.3, 3.7], [0.3, 4.5], [0.5, 4.7], [0.5, 5.0],
-                      [0.3, 5.0], [0.3, 5.5], [0, 6.0], [-0.3, 5.5],
-                      [-0.3, 5.0], [-0.5, 4.7], [-0.5, 4.5], [-0.3, 3.7],
-                      [-0.3, 3.5], [-0.4, 2.7], [-0.4, 2.5], [-0.3, 1.7],
-                      [-0.3, 1.5], [-0.5, 0.7], [-0.5, 0.5], [-0.3, 0],
+                      [0.3, 5.0], [0.3, 5.5], [0, 6.0]
                     ],
                   },
                 },
@@ -168,8 +166,8 @@ function meshToThree(mesh: TriangleMesh, color: number) {
   const mat = new THREE.MeshStandardMaterial({
     color,
     roughness: 0.35,
-    metalness: 0.15,
     side: THREE.DoubleSide,
+    flatShading: true,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
@@ -276,12 +274,26 @@ async function main() {
 
   // Demo buttons
   let currentDemo = "csg";
+
+  const updateCamera = () => {
+    switch (currentDemo) {
+      case "csg": camera.position.set(6, 4, 8); break;
+      case "extrude": camera.position.set(6, 4, 8); break;
+      case "revolve": camera.position.set(8, 6, 8); break;
+      case "sweep": camera.position.set(5, 4, 6); break;
+    }
+    controls.target.set(0, 0, 0);
+    controls.update();
+  };
+  updateCamera();
+
   const demoButtons = document.querySelectorAll<HTMLButtonElement>("[data-demo]");
   demoButtons.forEach((btn) => {
     btn.addEventListener("click", () => {
       demoButtons.forEach((b) => b.classList.remove("active"));
       btn.classList.add("active");
       currentDemo = btn.dataset.demo!;
+      updateCamera();
       const entry = RECIPES[currentDemo];
       const json = JSON.stringify(entry.recipe, null, 2);
       editor.value = json;
@@ -312,18 +324,6 @@ async function main() {
       buildFromRecipe(editor.value);
     }
   });
-
-  // Resize
-  const updateCamera = () => {
-    switch (currentDemo) {
-      case "csg":    camera.position.set(6, 4, 8); break;
-      case "extrude": camera.position.set(6, 4, 8); break;
-      case "revolve": camera.position.set(8, 6, 8); break;
-      case "sweep":  camera.position.set(5, 4, 6); break;
-    }
-    controls.target.set(0, 0, 0);
-    controls.update();
-  };
 
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;

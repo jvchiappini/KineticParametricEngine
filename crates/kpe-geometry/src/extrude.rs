@@ -126,19 +126,19 @@ fn revolve_contour(
             let r1 = ring * pitch + next as u32;
             let r2 = (ring + 1) * pitch + i as u32;
             let r3 = (ring + 1) * pitch + next as u32;
-            tris.push([r0, r1, r3]);
-            tris.push([r0, r3, r2]);
+            tris.push([r0, r2, r3]);
+            tris.push([r0, r3, r1]);
         }
     }
 
     if cap && angle < std::f64::consts::TAU * 0.999 {
         let start_cap = 0u32;
         for i in 1..n - 1 {
-            tris.push([start_cap, start_cap + i as u32 + 1, start_cap + i as u32]);
+            tris.push([start_cap, start_cap + i as u32, start_cap + i as u32 + 1]);
         }
         let end_cap = seg * pitch;
         for i in 1..n - 1 {
-            tris.push([end_cap, end_cap + i as u32, end_cap + i as u32 + 1]);
+            tris.push([end_cap, end_cap + i as u32 + 1, end_cap + i as u32]);
         }
     }
 
@@ -161,8 +161,8 @@ fn sweep_path_positions(path: &SweepPath, segments: u32) -> Vec<(DVec3, DQuat)> 
         SweepPath::Linear { direction, distance } => {
             let dir = DVec3::new(direction[0], direction[1], direction[2]).normalize();
             let up = if dir.y.abs() < 0.9 { DVec3::Y } else { DVec3::Z };
-            let right = dir.cross(up).normalize();
-            let real_up = right.cross(dir).normalize();
+            let right = up.cross(dir).normalize();
+            let real_up = dir.cross(right).normalize();
             let rot = DQuat::from_mat3(&DMat3::from_cols(right, real_up, dir));
             let step = distance / seg as f64;
             (0..=seg).map(|i| (dir * i as f64 * step, rot)).collect()
@@ -172,14 +172,16 @@ fn sweep_path_positions(path: &SweepPath, segments: u32) -> Vec<(DVec3, DQuat)> 
             let step = angle / seg as f64;
             let up = if ax.y.abs() < 0.9 { DVec3::Y } else { DVec3::Z };
             let start_dir = ax.cross(up).normalize();
-            let real_up = start_dir.cross(ax).normalize();
+            let _real_up = start_dir.cross(ax).normalize();
             (0..=seg).map(|i| {
                 let theta = i as f64 * step;
                 let rot_seg = DQuat::from_axis_angle(ax, theta);
                 let pos = rot_seg * (start_dir * radius);
-                let tangent = rot_seg * real_up.cross(ax).normalize();
+                let right = pos.normalize();
+                let tangent = ax.cross(right).normalize();
+                let rot_up = tangent.cross(right).normalize();
                 let frame_rot = DQuat::from_mat3(&DMat3::from_cols(
-                    tangent, real_up, ax,
+                    right, rot_up, tangent,
                 ));
                 (pos, frame_rot)
             }).collect()
@@ -193,10 +195,13 @@ fn sweep_path_positions(path: &SweepPath, segments: u32) -> Vec<(DVec3, DQuat)> 
                 let x = radius * theta.cos();
                 let z = radius * theta.sin();
                 let y = i as f64 * height_step;
-                let tangent = DVec3::new(-theta.sin(), 0.0, theta.cos()).normalize();
+                let dy_dt = pitch / std::f64::consts::TAU;
+                let dx_dt = -radius * theta.sin();
+                let dz_dt = radius * theta.cos();
+                let tangent = DVec3::new(dx_dt, dy_dt, dz_dt).normalize();
                 let up = DVec3::Y;
-                let right = tangent.cross(up).normalize();
-                let real_up = right.cross(tangent).normalize();
+                let right = up.cross(tangent).normalize();
+                let real_up = tangent.cross(right).normalize();
                 let rot = DQuat::from_mat3(&DMat3::from_cols(right, real_up, tangent));
                 (DVec3::new(x, y, z), rot)
             }).collect()

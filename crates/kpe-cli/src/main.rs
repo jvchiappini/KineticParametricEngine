@@ -3,7 +3,7 @@ mod export;
 use std::env;
 use kpe_schema::recipe::KPERecipe;
 use kpe_parametric::Solver;
-use kpe_geometry::mesh::MeshBuilder;
+use kpe_geometry::mesh::build_mesh_from_node;
 
 fn die(msg: &str) -> ! {
     eprintln!("Error: {msg}");
@@ -29,8 +29,7 @@ fn load_recipe(path: &str) -> KPERecipe {
 fn build_mesh(recipe: &KPERecipe) -> kpe_schema::geometry::TriangleMesh {
     let solver = Solver::new();
     let resolved = solver.resolve(recipe).unwrap_or_else(|e| die(&format!("solver: {e:?}")));
-    let builder = MeshBuilder::new();
-    builder.build_from_node(&resolved.recipe.scene)
+    build_mesh_from_node(&resolved.recipe.scene)
 }
 
 fn cmd_export(args: &[String]) {

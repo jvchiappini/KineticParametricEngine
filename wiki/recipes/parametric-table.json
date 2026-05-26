@@ -1,0 +1,50 @@
+{
+  "version": "1.0",
+  "metadata": {
+    "name": "Parametric Table",
+    "author": "KPE",
+    "description": "Table with parametrically sized legs and apron. Run `kpe resolve` to compute dimensions.",
+    "tags": ["furniture", "table", "parametric", "resolve-demo"]
+  },
+  "blocks": {
+    "table": {
+      "id": "table",
+      "label": "Table Dimensions",
+      "params": {
+        "width":  { "type": "Number", "default": 800,  "min": 400, "max": 2000, "unit": "mm" },
+        "depth":  { "type": "Number", "default": 600,  "min": 300, "max": 1500, "unit": "mm" },
+        "height": { "type": "Number", "default": 720,  "min": 400, "max": 1000, "unit": "mm" }
+      },
+      "variables": {
+        "leg_t": { "expr": "params.width * 0.05" },
+        "apron_h": { "expr": "params.height * 0.12" },
+        "top_t":  { "expr": "18" }
+      },
+      "rules": [
+        { "when": "params.width > 1200", "then": [] },
+        { "when": "params.height > 800", "then": [] }
+      ]
+    }
+  },
+  "scene": {
+    "id": "root",
+    "node_type": "Compound",
+    "transform": null,
+    "children": [
+      {
+        "id": "leg",
+        "node_type": {
+          "Box": { "width": 0.05, "height": 0.72, "depth": 0.05 }
+        },
+        "transform": { "translation": [-0.35, 0, -0.25], "rotation": null, "scale": null },
+        "children": [],
+        "operations": []
+      }
+    ],
+    "operations": []
+  },
+  "joints": [],
+  "constraints": [],
+  "materials": {},
+  "precision": null
+}
