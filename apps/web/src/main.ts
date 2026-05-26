@@ -15,7 +15,149 @@ type TriangleMesh = {
   triangles: [number, number, number][];
 };
 
-function meshToThree(mesh: TriangleMesh, color: number, ghost: boolean = false) {
+// ── Recipes ──────────────────────────────────────────────────────
+
+function makeRecipe(scene: any) {
+  return {
+    version: "0.1.0",
+    metadata: { name: "KPE Demo", author: null, description: null, created_at: null, tags: [] },
+    blocks: {},
+    scene,
+    joints: [],
+    constraints: [],
+    materials: {},
+    precision: null,
+  };
+}
+
+const RECIPES: Record<string, { label: string; recipe: any }> = {
+  csg: {
+    label: "CSG",
+    recipe: makeRecipe({
+      id: "root",
+      node_type: "Compound",
+      transform: null,
+      children: [
+        { id: "box1", node_type: { Box: { width: 2, height: 2, depth: 2 } }, transform: null, children: [], operations: [] },
+        { id: "sphere1", node_type: { Sphere: { radius: 1.3 } }, transform: { translation: [0.8, 0, 0.8], rotation: null, scale: null }, children: [], operations: [] },
+      ],
+      operations: [],
+    }),
+  },
+  extrude: {
+    label: "Extrude",
+    recipe: makeRecipe({
+      id: "root",
+      node_type: "Compound",
+      transform: null,
+      children: [
+        {
+          id: "profile",
+          node_type: {
+            Sketch: {
+              plane: "XY",
+              primitives: [
+                { Rectangle: { x: -1.5, y: -0.75, width: 3, height: 1.5 } },
+                { Circle: { cx: 0, cy: 0, radius: 0.4 } },
+              ],
+            },
+          },
+          transform: null,
+          children: [],
+          operations: [],
+        },
+        {
+          id: "block",
+          node_type: { Extrude: { sketch_id: "profile", distance: 4, cap: true } },
+          transform: null,
+          children: [],
+          operations: [],
+        },
+      ],
+      operations: [],
+    }),
+  },
+  revolve: {
+    label: "Revolve",
+    recipe: makeRecipe({
+      id: "root",
+      node_type: "Compound",
+      transform: null,
+      children: [
+        {
+          id: "profile",
+          node_type: {
+            Sketch: {
+              plane: "XY",
+              primitives: [
+                {
+                  Polygon: {
+                    points: [
+                      [0.3, 0], [0.3, 0.5], [0.5, 0.7], [0.5, 1.5],
+                      [0.3, 1.7], [0.3, 2.5], [0.4, 2.7], [0.4, 3.5],
+                      [0.3, 3.7], [0.3, 4.5], [0.5, 4.7], [0.5, 5.0],
+                      [0.3, 5.0], [0.3, 5.5], [0, 6.0], [-0.3, 5.5],
+                      [-0.3, 5.0], [-0.5, 4.7], [-0.5, 4.5], [-0.3, 3.7],
+                      [-0.3, 3.5], [-0.4, 2.7], [-0.4, 2.5], [-0.3, 1.7],
+                      [-0.3, 1.5], [-0.5, 0.7], [-0.5, 0.5], [-0.3, 0],
+                    ],
+                  },
+                },
+              ],
+            },
+          },
+          transform: null,
+          children: [],
+          operations: [],
+        },
+        {
+          id: "leg",
+          node_type: { Revolve: { sketch_id: "profile", angle: 6.283185307179586, segments: 48, axis: "Y", cap: false } },
+          transform: null,
+          children: [],
+          operations: [],
+        },
+      ],
+      operations: [],
+    }),
+  },
+  sweep: {
+    label: "Sweep",
+    recipe: makeRecipe({
+      id: "root",
+      node_type: "Compound",
+      transform: null,
+      children: [
+        {
+          id: "wire",
+          node_type: {
+            Sketch: {
+              plane: "YZ",
+              primitives: [
+                { Circle: { cx: 0, cy: 0, radius: 0.15, segments: 12 } },
+              ],
+            },
+          },
+          transform: null,
+          children: [],
+          operations: [],
+        },
+        {
+          id: "spring",
+          node_type: { Sweep: { sketch_id: "wire", path: { Helix: { radius: 1.5, pitch: 0.8, turns: 5 } }, segments: 120, cap: false } },
+          transform: null,
+          children: [],
+          operations: [],
+        },
+      ],
+      operations: [],
+    }),
+  },
+};
+
+// ── Three.js helpers ─────────────────────────────────────────────
+
+function meshToThree(mesh: TriangleMesh, color: number) {
   const verts = new Float32Array(mesh.vertices.flat());
   const idx = new Uint32Array(mesh.triangles.flat());
   const geometry = new THREE.BufferGeometry();
@@ -25,74 +167,30 @@ function meshToThree(mesh: TriangleMesh, color: number, ghost: boolean = false) 
 
   const mat = new THREE.MeshStandardMaterial({
     color,
-    roughness: 0.4,
-    metalness: 0.1,
+    roughness: 0.35,
+    metalness: 0.15,
     side: THREE.DoubleSide,
-    transparent: ghost,
-    opacity: ghost ? 0.2 : 1.0,
     polygonOffset: true,
     polygonOffsetFactor: 1,
     polygonOffsetUnits: 1,
   });
   const obj = new THREE.Mesh(geometry, mat);
-  obj.castShadow = !ghost;
-  obj.receiveShadow = !ghost;
+  obj.castShadow = true;
+  obj.receiveShadow = true;
 
-  // Add wireframe to show the mesh properly
-  const wireMat = new THREE.LineBasicMaterial({
-    color: ghost ? 0xffffff : 0x000000,
-    transparent: true,
-    opacity: ghost ? 0.1 : 0.3,
-  });
+  const wireMat = new THREE.LineBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.15 });
   const wireObj = new THREE.LineSegments(new THREE.WireframeGeometry(geometry), wireMat);
   obj.add(wireObj);
 
   return obj;
 }
 
-function makeBox(id: string, w: number, h: number, d: number) {
-  return {
-    id,
-    node_type: { Box: { width: w, height: h, depth: d } },
-    transform: null as any,
-    children: [] as any[],
-    operations: [] as any[],
-  };
-}
-
-function makeSphere(id: string, r: number) {
-  return {
-    id,
-    node_type: { Sphere: { radius: r } },
-    transform: null as any,
-    children: [] as any[],
-    operations: [] as any[],
-  };
-}
-
-function makeRecipe(children: any[]) {
-  return {
-    version: "0.1.0",
-    metadata: { name: "CSG Demo", author: null, description: null, created_at: null, tags: [] },
-    blocks: {},
-    scene: {
-      id: "root",
-      node_type: "Compound",
-      transform: null,
-      children,
-      operations: [],
-    },
-    joints: [],
-    constraints: [],
-    materials: {},
-    precision: null,
-  };
-}
+// ── Main ─────────────────────────────────────────────────────────
 
 async function main() {
   await init();
-  const statusEl = document.getElementById("status");
-  if (statusEl) statusEl.textContent = hello();
+  const statusEl = document.getElementById("status")!;
+  statusEl.textContent = hello();
 
   // Renderer
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -109,13 +207,11 @@ async function main() {
   scene.background = new THREE.Color(0x111122);
 
   const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
-  camera.position.set(6, 4, 8);
 
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.target.set(0, 0, 0);
-  controls.update();
 
   // Lights
   scene.add(new THREE.AmbientLight(0x404060, 0.5));
@@ -137,83 +233,98 @@ async function main() {
   ground.receiveShadow = true;
   scene.add(ground);
 
-  // Build source meshes
-  const boxNode = makeBox("box1", 2, 2, 2);
-  const sphereNode = makeSphere("sphere1", 1.3);
-  sphereNode.transform = { translation: [0.8, 0, 0.8], rotation: null, scale: null };
-
-  const boxRecipe = makeRecipe([boxNode]);
-  const sphereRecipe = makeRecipe([sphereNode]);
-
-  const boxJson = build_mesh(JSON.stringify(boxRecipe));
-  const sphereJson = build_mesh(JSON.stringify(sphereRecipe));
-
-  const boxMesh: TriangleMesh = JSON.parse(boxJson);
-  const sphereMesh: TriangleMesh = JSON.parse(sphereJson);
-
-  // Ghost originals
-  const ghostGroup = new THREE.Group();
-  ghostGroup.position.x = -7.0; // Prevent z-fighting with the Union result at x=0
-
-  const ghostBox = meshToThree(boxMesh, 0x4488ff, true);
-  ghostGroup.add(ghostBox);
-
-  const ghostSphere = meshToThree(sphereMesh, 0xff8844, true);
-  ghostGroup.add(ghostSphere);
-
-  scene.add(ghostGroup);
-
-  // Ghost Label
-  const ghostCanvas = document.createElement("canvas");
-  ghostCanvas.width = 256;
-  ghostCanvas.height = 64;
-  const ghostCtx = ghostCanvas.getContext("2d")!;
-  ghostCtx.fillStyle = "#fff";
-  ghostCtx.font = "bold 28px sans-serif";
-  ghostCtx.textAlign = "center";
-  ghostCtx.fillText("Originals", 128, 42);
-  const ghostTex = new THREE.CanvasTexture(ghostCanvas);
-  const ghostSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: ghostTex, depthWrite: false }));
-  ghostSprite.scale.set(2, 0.5, 1);
-  ghostSprite.position.set(0, 2.8, 0); // Relative to group
-  ghostGroup.add(ghostSprite);
-
-  // CSG results
-  const results: [string, typeof csg_union, number, number][] = [
-    ["Union", csg_union, 0x44ff88, 0],
-    ["Subtract", csg_subtract, 0xff4488, 3.5],
-    ["Intersect", csg_intersect, 0xffcc44, -3.5],
-  ];
-
-  for (const [label, fn, color, x] of results) {
-    const json = fn(boxJson, sphereJson);
-    const mesh: TriangleMesh = JSON.parse(json);
-    const obj = meshToThree(mesh, color);
-    obj.position.x = x;
-    scene.add(obj);
-
-    // Label sprite
-    const canvas = document.createElement("canvas");
-    canvas.width = 256;
-    canvas.height = 64;
-    const ctx = canvas.getContext("2d")!;
-    ctx.fillStyle = "#fff";
-    ctx.font = "bold 28px sans-serif";
-    ctx.textAlign = "center";
-    ctx.fillText(label, 128, 42);
-    const tex = new THREE.CanvasTexture(canvas);
-    const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: tex, depthWrite: false }));
-    sprite.scale.set(2, 0.5, 1);
-    sprite.position.set(x, 2.8, 0);
-    scene.add(sprite);
-  }
-
   // Grid
   const grid = new THREE.GridHelper(14, 20, 0x666688, 0x444466);
   grid.position.y = -1.5;
   scene.add(grid);
 
+  // Editor
+  const editor = document.getElementById("editor") as HTMLTextAreaElement;
+  const triCount = document.getElementById("tri-count")!;
+  const buildBtn = document.getElementById("build-btn")!;
+
+  let meshGroup = new THREE.Group();
+  scene.add(meshGroup);
+
+  function buildFromRecipe(recipeJson: string) {
+    try {
+      const json = build_mesh(recipeJson);
+      const mesh: TriangleMesh = JSON.parse(json);
+
+      // Clear previous
+      scene.remove(meshGroup);
+      meshGroup.traverse((c) => {
+        if (c instanceof THREE.Mesh) {
+          c.geometry.dispose();
+          if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+          else c.material.dispose();
+        }
+      });
+
+      meshGroup = new THREE.Group();
+      const obj = meshToThree(mesh, 0x88aaff);
+      meshGroup.add(obj);
+      scene.add(meshGroup);
+
+      const count = mesh.triangles.length;
+      triCount.textContent = `${count} triangles`;
+      statusEl.textContent = `${count} triangles · OK`;
+    } catch (e: any) {
+      statusEl.textContent = `Error: ${e}`;
+    }
+  }
+
+  // Demo buttons
+  let currentDemo = "csg";
+  const demoButtons = document.querySelectorAll<HTMLButtonElement>("[data-demo]");
+  demoButtons.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      demoButtons.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      currentDemo = btn.dataset.demo!;
+      const entry = RECIPES[currentDemo];
+      const json = JSON.stringify(entry.recipe, null, 2);
+      editor.value = json;
+      buildFromRecipe(json);
+    });
+  });
+
+  // Load default
+  const defaultJson = JSON.stringify(RECIPES.csg.recipe, null, 2);
+  editor.value = defaultJson;
+  buildFromRecipe(defaultJson);
+
+  // Build button
+  buildBtn.addEventListener("click", () => {
+    buildFromRecipe(editor.value);
+  });
+
+  // Toggle panel
+  const panel = document.getElementById("panel")!;
+  document.getElementById("toggle-panel")!.addEventListener("click", () => {
+    panel.classList.toggle("collapsed");
+  });
+
+  // Keyboard shortcut
+  editor.addEventListener("keydown", (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === "Enter") {
+      e.preventDefault();
+      buildFromRecipe(editor.value);
+    }
+  });
+
   // Resize
+  const updateCamera = () => {
+    switch (currentDemo) {
+      case "csg":    camera.position.set(6, 4, 8); break;
+      case "extrude": camera.position.set(6, 4, 8); break;
+      case "revolve": camera.position.set(8, 6, 8); break;
+      case "sweep":  camera.position.set(5, 4, 6); break;
+    }
+    controls.target.set(0, 0, 0);
+    controls.update();
+  };
+
   addEventListener("resize", () => {
     camera.aspect = innerWidth / innerHeight;
     camera.updateProjectionMatrix();

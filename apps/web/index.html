@@ -6,13 +6,56 @@
     <title>KPE — Kinetic Parametric Engine</title>
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
-      html, body, #app { width: 100%; height: 100%; overflow: hidden; background: #111; }
-      #info { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); color: #fff; font: 14px/1.4 sans-serif; background: rgba(0,0,0,.7); padding: 8px 16px; border-radius: 6px; pointer-events: none; user-select: none; }
+      html, body { width: 100%; height: 100%; overflow: hidden; background: #111; font-family: 'Segoe UI', system-ui, sans-serif; color: #ddd; }
+      #app { width: 100%; height: 100%; }
+
+      /* Toolbar */
+      #toolbar { position: absolute; top: 0; left: 0; right: 0; height: 48px; background: rgba(16,16,32,.92); backdrop-filter: blur(6px); display: flex; align-items: center; gap: 6px; padding: 0 12px; z-index: 10; border-bottom: 1px solid #333; }
+      #toolbar .brand { font-weight: 700; color: #8af; margin-right: 16px; font-size: 14px; letter-spacing: .5px; }
+      #toolbar button { background: #2a2a4a; border: 1px solid #444; color: #ccc; padding: 4px 14px; border-radius: 4px; cursor: pointer; font-size: 12px; transition: all .15s; white-space: nowrap; }
+      #toolbar button:hover { background: #3a3a6a; border-color: #66a; color: #fff; }
+      #toolbar button.active { background: #3a3a8a; border-color: #88c; color: #fff; }
+      #toolbar button.danger { background: #5a2a2a; border-color: #844; }
+      #toolbar button.danger:hover { background: #7a3a3a; }
+      #toolbar .spacer { flex: 1; }
+      #toolbar .status { font-size: 12px; color: #888; margin-left: 12px; }
+
+      /* Panel */
+      #panel { position: absolute; top: 48px; right: 0; width: 420px; bottom: 0; background: rgba(16,16,32,.9); backdrop-filter: blur(6px); border-left: 1px solid #333; z-index: 10; display: flex; flex-direction: column; transition: transform .25s; }
+      #panel.collapsed { transform: translateX(100%); }
+      #panel textarea { flex: 1; background: #0a0a18; border: none; border-bottom: 1px solid #333; color: #8f8; font: 12px/1.5 'Cascadia Code', 'Fira Code', 'JetBrains Mono', monospace; padding: 10px; resize: none; outline: none; tab-size: 2; }
+      #panel .panel-footer { display: flex; gap: 6px; padding: 8px; align-items: center; }
+      #panel .panel-footer button { background: #2a5a2a; border: 1px solid #484; color: #afa; padding: 6px 20px; border-radius: 4px; cursor: pointer; font-size: 13px; font-weight: 600; }
+      #panel .panel-footer button:hover { background: #3a7a3a; }
+      #panel .panel-footer .tri-count { font-size: 11px; color: #888; margin-left: auto; }
+
+      #toggle-panel { position: absolute; top: 54px; right: 6px; z-index: 11; background: rgba(16,16,32,.8); border: 1px solid #444; color: #aaa; padding: 4px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+      #toggle-panel:hover { color: #fff; border-color: #66a; }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <div id="info">KPE Engine — drag to orbit · scroll to zoom</div>
+
+    <div id="toolbar">
+      <span class="brand">KPE</span>
+      <button data-demo="csg" class="active">CSG</button>
+      <button data-demo="extrude">Extrude</button>
+      <button data-demo="revolve">Revolve</button>
+      <button data-demo="sweep">Sweep</button>
+      <span class="spacer"></span>
+      <span class="status" id="status">loading…</span>
+    </div>
+
+    <button id="toggle-panel">{ }</button>
+
+    <div id="panel">
+      <textarea id="editor" spellcheck="false"></textarea>
+      <div class="panel-footer">
+        <button id="build-btn">▶ Build</button>
+        <span class="tri-count" id="tri-count"></span>
+      </div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
