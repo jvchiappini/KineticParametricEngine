@@ -57,7 +57,8 @@ impl CsgKernel {
         }
 
         let (va_split, ta_split) = split_mesh_triangles(&va, &ta, &pairs, &vb, &tb);
-        let (vb_split, tb_split) = split_mesh_triangles(&vb, &tb, &pairs, &va, &ta);
+        let swapped: Vec<(usize, usize)> = pairs.iter().map(|&(a, b)| (b, a)).collect();
+        let (vb_split, tb_split) = split_mesh_triangles(&vb, &tb, &swapped, &va, &ta);
 
         (va_split, ta_split, vb_split, tb_split, pairs)
     }
