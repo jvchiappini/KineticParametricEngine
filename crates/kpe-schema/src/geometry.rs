@@ -18,6 +18,8 @@ pub enum GeometryNodeType {
     Mesh(MeshDef),
     Sketch(SketchDef),
     Extrude(ExtrudeDef),
+    Revolve(RevolveDef),
+    Sweep(SweepDef),
     Compound,
 }
 
@@ -72,6 +74,37 @@ pub struct ExtrudeDef {
     pub distance: f64,
     pub direction: Option<[f64; 3]>,
     pub cap: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RevolveDef {
+    pub sketch_id: String,
+    pub angle: f64,
+    pub segments: Option<u32>,
+    pub axis: RevolveAxis,
+    pub cap: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum RevolveAxis {
+    X,
+    Y,
+    Z,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SweepDef {
+    pub sketch_id: String,
+    pub path: SweepPath,
+    pub segments: Option<u32>,
+    pub cap: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum SweepPath {
+    Linear { direction: [f64; 3], distance: f64 },
+    Arc { radius: f64, angle: f64, axis: [f64; 3] },
+    Helix { radius: f64, pitch: f64, turns: f64 },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

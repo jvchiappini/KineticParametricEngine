@@ -2,7 +2,6 @@ use wasm_bindgen::prelude::*;
 use kpe_schema::recipe::KPERecipe;
 use kpe_schema::geometry::TriangleMesh;
 use kpe_parametric::Solver;
-use kpe_geometry::mesh::MeshBuilder;
 use kpe_geometry::csg::CsgKernel;
 
 #[wasm_bindgen]
@@ -23,8 +22,7 @@ pub fn build_mesh(json: &str) -> Result<String, JsValue> {
     let recipe: KPERecipe = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
 
-    let builder = MeshBuilder::new();
-    let mesh = builder.build_from_node(&recipe.scene);
+    let mesh = kpe_geometry::mesh::build_mesh_from_node(&recipe.scene);
 
     serde_json::to_string(&mesh)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))

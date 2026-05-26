@@ -17,6 +17,7 @@ pub use csg::CsgKernel;
 pub use transform::TransformEngine;
 pub use joint::JointEngine;
 pub use mesh::MeshBuilder;
+pub use mesh::build_mesh_from_node;
 pub use sketch::SketchEngine;
 pub use predicates::*;
 pub use intersection::triangle_triangle_intersection;
