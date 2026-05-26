@@ -9,6 +9,7 @@ pub mod intersection;
 pub mod bvh;
 pub mod classify;
 pub mod stitch;
+pub mod split;
 
 pub use brep::BRepKernel;
 pub use csg::CsgKernel;

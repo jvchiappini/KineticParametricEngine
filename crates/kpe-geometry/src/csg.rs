@@ -3,7 +3,7 @@ use kpe_schema::geometry::{CsgOpType, CsgOperation, TriangleMesh, BRepModel};
 use crate::bvh::BVH;
 use crate::classify::classify_triangle_fragments;
 use crate::stitch::Stitcher;
-
+use crate::split::split_mesh_triangles;
 
 pub struct CsgKernel;
 
@@ -40,13 +40,30 @@ impl CsgKernel {
         }
     }
 
-    pub fn union(&self, mesh_a: &TriangleMesh, mesh_b: &TriangleMesh) -> TriangleMesh {
+    fn prepare_meshes(
+        &self,
+        mesh_a: &TriangleMesh,
+        mesh_b: &TriangleMesh,
+    ) -> (Vec<DVec3>, Vec<[u32; 3]>, Vec<DVec3>, Vec<[u32; 3]>, Vec<(usize, usize)>) {
         let (va, ta) = to_dvec3(mesh_a);
         let (vb, tb) = to_dvec3(mesh_b);
 
         let bvh_a = BVH::build(&va, &ta);
         let bvh_b = BVH::build(&vb, &tb);
         let pairs = bvh_a.query_intersections(&bvh_b);
+
+        if pairs.is_empty() {
+            return (va, ta, vb, tb, pairs);
+        }
+
+        let (va_split, ta_split) = split_mesh_triangles(&va, &ta, &pairs, &vb, &tb);
+        let (vb_split, tb_split) = split_mesh_triangles(&vb, &tb, &pairs, &va, &ta);
+
+        (va_split, ta_split, vb_split, tb_split, pairs)
+    }
+
+    pub fn union(&self, mesh_a: &TriangleMesh, mesh_b: &TriangleMesh) -> TriangleMesh {
+        let (va, ta, vb, tb, pairs) = self.prepare_meshes(mesh_a, mesh_b);
 
         if pairs.is_empty() {
             return self.concatenate(mesh_a, mesh_b);
@@ -84,12 +101,7 @@ impl CsgKernel {
     }
 
     pub fn subtract(&self, mesh_a: &TriangleMesh, mesh_b: &TriangleMesh) -> TriangleMesh {
-        let (va, ta) = to_dvec3(mesh_a);
-        let (vb, tb) = to_dvec3(mesh_b);
-
-        let bvh_a = BVH::build(&va, &ta);
-        let bvh_b = BVH::build(&vb, &tb);
-        let pairs = bvh_a.query_intersections(&bvh_b);
+        let (va, ta, vb, tb, pairs) = self.prepare_meshes(mesh_a, mesh_b);
 
         if pairs.is_empty() {
             return mesh_a.clone();
@@ -130,12 +142,7 @@ impl CsgKernel {
     }
 
     pub fn intersect(&self, mesh_a: &TriangleMesh, mesh_b: &TriangleMesh) -> TriangleMesh {
-        let (va, ta) = to_dvec3(mesh_a);
-        let (vb, tb) = to_dvec3(mesh_b);
-
-        let bvh_a = BVH::build(&va, &ta);
-        let bvh_b = BVH::build(&vb, &tb);
-        let pairs = bvh_a.query_intersections(&bvh_b);
+        let (va, ta, vb, tb, pairs) = self.prepare_meshes(mesh_a, mesh_b);
 
         if pairs.is_empty() {
             return TriangleMesh {
@@ -253,8 +260,8 @@ mod tests {
         let mesh_a = make_box_at(0.0, 0.0, 0.0, 1.0, 1.0, 1.0);
         let mesh_b = make_box_at(5.0, 5.0, 5.0, 1.0, 1.0, 1.0);
         let result = kernel.union(&mesh_a, &mesh_b);
-        let expected_count = mesh_a.triangles.len() + mesh_b.triangles.len();
-        assert_eq!(result.triangles.len(), expected_count);
+        let expected = mesh_a.triangles.len() + mesh_b.triangles.len();
+        assert_eq!(result.triangles.len(), expected);
     }
 
     #[test]
@@ -304,5 +311,15 @@ mod tests {
         let mesh_b = make_box_at(0.0, 0.0, 0.0, 2.0, 2.0, 2.0);
         let result = kernel.subtract(&mesh_a, &mesh_b);
         assert!(!result.triangles.is_empty());
+    }
+
+    #[test]
+    fn test_union_partial_overlap() {
+        let kernel = CsgKernel::new();
+        let mesh_a = make_box_at(0.0, 0.0, 0.0, 4.0, 4.0, 4.0);
+        let mesh_b = make_box_at(2.0, 2.0, 2.0, 4.0, 4.0, 4.0);
+        let result = kernel.union(&mesh_a, &mesh_b);
+        assert!(!result.triangles.is_empty());
+        assert!(result.triangles.len() > mesh_a.triangles.len());
     }
 }
