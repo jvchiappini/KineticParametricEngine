@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "name": "Helical Spring",
+  "geometry": {
+    "id": "root",
+    "node_type": "Compound",
+    "children": [
+      {
+        "id": "wire-profile",
+        "node_type": {
+          "Sketch": {
+            "plane": "YZ",
+            "primitives": [
+              { "Circle": { "cx": 0, "cy": 0, "radius": 0.15, "segments": 12 } }
+            ]
+          }
+        }
+      },
+      {
+        "id": "spring",
+        "node_type": {
+          "Sweep": {
+            "sketch_id": "wire-profile",
+            "path": { "Helix": { "radius": 1.5, "pitch": 0.8, "turns": 5 } },
+            "segments": 120,
+            "cap": false
+          }
+        }
+      }
+    ]
+  }
+}

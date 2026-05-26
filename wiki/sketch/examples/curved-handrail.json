@@ -1,0 +1,32 @@
+{
+  "version": "1.0",
+  "name": "Curved Handrail",
+  "geometry": {
+    "id": "root",
+    "node_type": "Compound",
+    "children": [
+      {
+        "id": "rail-profile",
+        "node_type": {
+          "Sketch": {
+            "plane": "YZ",
+            "primitives": [
+              { "Rectangle": { "x": -0.03, "y": -0.04, "width": 0.06, "height": 0.08 } }
+            ]
+          }
+        }
+      },
+      {
+        "id": "handrail",
+        "node_type": {
+          "Sweep": {
+            "sketch_id": "rail-profile",
+            "path": { "Arc": { "radius": 2, "angle": 1.5708, "axis": [0, 0, 1] } },
+            "segments": 24,
+            "cap": true
+          }
+        }
+      }
+    ]
+  }
+}
