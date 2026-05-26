@@ -1,7 +1,7 @@
 # Data Flow — End to End
 
 ```
-User edits parameters in UI (React/TS)
+User edits parameters in UI / loads recipe JSON (apps/web or apps/cli)
   │
   ▼
 JSON KPERecipe
@@ -26,40 +26,55 @@ JSON KPERecipe
   │            rules applied, scene tree expanded)
   │
   ▼
-kpe-geometry
+kpe-geometry::MeshBuilder
   │
-  ├── mesh::MeshBuilder
+  ├── Primitives
   │     BoxDef → 8 vertices + 12 triangles
   │     CylinderDef → 2N vertices + 2N triangles
   │     SphereDef → rings×segments vertices + 2×rings×segments triangles
   │
-  ├── transform::TransformEngine
+  ├── Sketch Pipeline (per ADR-006)
+  │     │
+  │     ├── sketch::tessellate_sketch()
+  │     │     Rectangle → 4 vertices (closed polyline)
+  │     │     Circle → N vertices (N = segments, default 32)
+  │     │     Polygon → M vertices (M = point count)
+  │     │     Arc → K vertices (K = segments, default 16)
+  │     │
+  │     └── extrude::extrude_sketch()
+  │           For each contour:
+  │           • Project 2D → 3D via SketchPlane (XY / XZ / YZ)
+  │           • Bottom cap: fan from first vertex (clockwise)
+  │           • Top cap: fan from first vertex (counter-clockwise)
+  │           • Side walls: quad strips (2 triangles per segment)
+  │           → TriangleMesh
+  │
+  ├── Compound nodes
+  │     Recursively build children, merge meshes with offset indices
+  │
+  ├── CSG Operations (csgrs backend)
+  │     │
+  │     ├── triangle_mesh_to_csg()
+  │     │     Each triangle → Polygon with 3 Vertex (pos + normal)
+  │     │     → csgrs::Mesh<()>
+  │     │
+  │     ├── Boolean operation via csgrs
+  │     │     • union()        → A ∪ B
+  │     │     • difference()   → A \ B
+  │     │     • intersection() → A ∩ B
+  │     │     csgrs uses BSP-tree with exact arithmetic
+  │     │
+  │     └── csg_to_triangle_mesh()
+  │           Triangulate output polygons
+  │           Deduplicate vertices via quantised hash (1e-5)
+  │           → TriangleMesh (with computed normals)
+  │
+  ├── Transform Engine (per ADR-004)
   │     Computes Mat4 from TransformOp
   │     Accumulates world matrix: parent_world × local
-  │     Matrices are NOT baked into vertices (per ADR-004)
+  │     Matrices are NOT baked into vertices
   │
-  ├── csg::CsgKernel  (per ADR-005)
-  │     │
-  │     ├── bvh::BVH
-  │     │     Builds AABB tree for each input mesh
-  │     │     Queries intersecting triangle pairs O(n log n)
-  │     │
-  │     ├── intersection::triangle_triangle_intersection()
-  │     │     Möller 1997: returns None / Coplanar / Segment
-  │     │
-  │     ├── classify::classify_triangle_fragments()
-  │     │     Ray-casting winding number for each triangle centroid
-  │     │
-  │     ├── stitch::Stitcher
-  │     │     Welds vertices within epsilon
-  │     │     Removes degenerate/duplicate triangles
-  │     │
-  │     └── Output per operation:
-  │           union: A_outside_B ∪ B_outside_A
-  │           subtract: A_outside_B ∪ B_inside_A (flipped normals)
-  │           intersect: A_inside_B ∪ B_inside_A
-  │
-  ├── joint::JointEngine
+  ├── Joint Engine
   │     Revolute: to_pivot × rotate(angle, axis) × from_pivot
   │     Prismatic: translate(axis × value)
   │     Clamp to JointLimits { min, max }
@@ -80,16 +95,21 @@ kpe-geometry
   │     │     Guillotine bin-packing on sheet dimensions
   │     │     Respects grain direction constraints
   │     │
-  │     ├── dxf::export()
-  │     │     LWPOLYLINE entities per nested piece
-  │     │
-  │     └── svg::export()
-  │           <rect> elements per nested piece
+  │     └── DXF / SVG export
+  │           LWPOLYLINE, 3DFACE, <rect> elements
   │
-  └──► External Renderer (your custom renderer / Three.js / wgpu)
-        Receives TriangleMesh + world_matrices
-        Applies transforms via GPU (not CPU)
-        Draws at 60fps — joint changes only update matrices
+  ├──► kpe-cli (export)
+  │     ├── kpe export recipe.json output.step
+  │     │     STEP AP242 tessellation (TRIANGULATED_FACE)
+  │     │
+  │     └── kpe export recipe.json output.dxf
+  │           DXF AC1009, 3DFACE entities per triangle
+  │
+  └──► apps/web (Three.js + WASM)
+        init() → loads WASM
+        build_mesh() / csg_union() / csg_subtract() / csg_intersect()
+        → TriangleMesh JSON → Three.js BufferGeometry
+        OrbitControls for navigation
 ```
 
 ## Key Architectural Properties
@@ -119,8 +139,8 @@ kpe-geometry
    kpe-schema     (shared types, no deps on other kpe crates)
        ↑
        ├─── kpe-parametric    (solver, expressions, rules)
-       ├─── kpe-geometry      (meshes, CSG, transforms, joints)
-       ├─── kpe-fabrication   (cut lists, nesting, DXF/SVG)
+       ├─── kpe-geometry      (meshes, CSG via csgrs, sketch, extrude, transforms, joints)
+       ├─── kpe-fabrication   (cut lists, nesting, DXF)
        ├─── kpe-material      (procedural textures, UVs)
        └─── kpe-wasm          (wasm-bindgen bindings)
                                   ↑
