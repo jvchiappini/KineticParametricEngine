@@ -36,8 +36,15 @@ impl Stitcher {
                 continue;
             }
 
-            let mut key = [t0, t1, t2];
-            key.sort();
+            // Canonicalise by cyclic rotation (find the minimum-index position and
+            // rotate to that position), preserving winding order so that [0,1,2] and
+            // [0,2,1] are treated as *distinct* triangles (opposite normals).
+            let min_pos = if t0 <= t1 && t0 <= t2 { 0 } else if t1 <= t2 { 1 } else { 2 };
+            let key = match min_pos {
+                0 => [t0, t1, t2],
+                1 => [t1, t2, t0],
+                _ => [t2, t0, t1],
+            };
             if seen.contains(&key) {
                 continue;
             }

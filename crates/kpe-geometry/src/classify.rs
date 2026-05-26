@@ -27,13 +27,16 @@ fn barycentric(p: DVec3, a: DVec3, b: DVec3, c: DVec3) -> Option<BarycentricCoor
     Some(BarycentricCoords { u, v, w })
 }
 
-pub fn classify_point_against_mesh(
+/// Cast a single ray from `point` in `ray_dir` and return the winding-number
+/// contribution from `triangles`. Returns `None` if the ray is degenerate
+/// (grazes a triangle edge/vertex exactly) for this direction.
+fn winding_for_ray(
     point: DVec3,
+    ray_dir: DVec3,
     vertices: &[DVec3],
     triangles: &[[u32; 3]],
-) -> bool {
-    let mut winding_number = 0i32;
-    let ray_dir = DVec3::X;
+) -> Option<i32> {
+    let mut winding = 0i32;
 
     for tri in triangles {
         let a = vertices[tri[0] as usize];
@@ -41,25 +44,14 @@ pub fn classify_point_against_mesh(
         let c = vertices[tri[2] as usize];
 
         let normal = predicates::triangle_normal(a, b, c);
+        let dot = normal.dot(ray_dir);
 
-        let bc = match barycentric(point, a, b, c) {
-            Some(bc) => bc,
-            None => continue,
-        };
-
-        if bc.u >= -EPSILON && bc.v >= -EPSILON && bc.w >= -EPSILON {
-            let dist = (point - (a * bc.u + b * bc.v + c * bc.w)).length();
-            if dist < EPSILON * 10.0 {
-                return true;
-            }
-        }
-
-        if normal.dot(ray_dir).abs() < EPSILON {
+        if dot.abs() < EPSILON {
             continue;
         }
 
         let d = -(normal.dot(a));
-        let t = -(normal.dot(point) + d) / normal.dot(ray_dir);
+        let t = -(normal.dot(point) + d) / dot;
 
         if t < EPSILON {
             continue;
@@ -67,22 +59,58 @@ pub fn classify_point_against_mesh(
 
         let hit = point + ray_dir * t;
 
-        let bc2 = match barycentric(hit, a, b, c) {
-            Some(bc2) => bc2,
+        let bc = match barycentric(hit, a, b, c) {
+            Some(bc) => bc,
             None => continue,
         };
 
-        let eps = 1e-9;
-        if bc2.u >= -eps && bc2.v >= -eps && bc2.w >= -eps {
-            if normal.dot(ray_dir) > 0.0 {
-                winding_number += 1;
+        // If the hit lands exactly on an edge or vertex, this ray direction is
+        // degenerate — signal the caller to retry with a different direction.
+        let on_edge = bc.u.abs() < 1e-9 || bc.v.abs() < 1e-9 || bc.w.abs() < 1e-9;
+        if on_edge {
+            return None;
+        }
+
+        if bc.u >= 0.0 && bc.v >= 0.0 && bc.w >= 0.0 {
+            if dot > 0.0 {
+                winding += 1;
             } else {
-                winding_number -= 1;
+                winding -= 1;
             }
         }
     }
 
-    winding_number != 0
+    Some(winding)
+}
+
+pub fn classify_point_against_mesh(
+    point: DVec3,
+    vertices: &[DVec3],
+    triangles: &[[u32; 3]],
+) -> bool {
+    // Use 3 ray directions with irrational components to avoid axis-aligned degeneracies.
+    // Vote: a point is inside if the majority of non-degenerate rays agree.
+    let ray_dirs = [
+        DVec3::new(1.0, 0.7071067811865476, 0.5773502691896258).normalize(), // ~(1, √½, 1/√3)
+        DVec3::new(-0.5773502691896258, 1.0, 0.7071067811865476).normalize(),
+        DVec3::new(0.7071067811865476, -0.5773502691896258, 1.0).normalize(),
+    ];
+
+    let mut votes_inside = 0i32;
+    let mut votes_outside = 0i32;
+
+    for ray_dir in ray_dirs {
+        if let Some(w) = winding_for_ray(point, ray_dir, vertices, triangles) {
+            if w != 0 {
+                votes_inside += 1;
+            } else {
+                votes_outside += 1;
+            }
+        }
+        // Degenerate ray: skip — the other two will still decide.
+    }
+
+    votes_inside > votes_outside
 }
 
 pub fn classify_triangle_fragments(

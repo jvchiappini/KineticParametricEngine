@@ -58,9 +58,9 @@ impl MeshBuilder {
         ];
 
         let triangles = vec![
-            [0, 1, 2], [0, 2, 3], [1, 5, 6], [1, 6, 2],
-            [5, 4, 7], [5, 7, 6], [4, 0, 3], [4, 3, 7],
-            [3, 2, 6], [3, 6, 7], [4, 5, 1], [4, 1, 0],
+            [0, 2, 1], [0, 3, 2], [1, 6, 5], [1, 2, 6],
+            [5, 7, 4], [5, 6, 7], [4, 3, 0], [4, 7, 3],
+            [3, 6, 2], [3, 7, 6], [4, 1, 5], [4, 0, 1],
         ];
 
         TriangleMesh {
@@ -72,7 +72,7 @@ impl MeshBuilder {
     }
 
     pub fn build_cylinder(&self, def: &CylinderDef) -> TriangleMesh {
-        let segments = 32;
+        let segments = 64;
         let mut vertices = vec![[0.0, -def.height / 2.0, 0.0], [0.0, def.height / 2.0, 0.0]];
         let mut triangles = Vec::new();
 
@@ -94,7 +94,7 @@ impl MeshBuilder {
 
             triangles.push([b0, n0, n1]);
             triangles.push([b0, n1, b1]);
-            triangles.push([0, n1, n0]);
+            triangles.push([0, n0, b0]);
             triangles.push([1, b1, n1]);
         }
 
@@ -107,12 +107,12 @@ impl MeshBuilder {
     }
 
     pub fn build_sphere(&self, def: &SphereDef) -> TriangleMesh {
-        let rings = 16;
-        let segments = 32;
+        let rings = 32;
+        let segments = 64;
         let mut vertices = Vec::new();
         let mut triangles = Vec::new();
 
-        vertices.push([0.0, -def.radius, 0.0]);
+        vertices.push([0.0, def.radius, 0.0]);
 
         for ring in 1..rings {
             let phi = (ring as f64 / rings as f64) * std::f64::consts::PI;
@@ -125,11 +125,11 @@ impl MeshBuilder {
             }
         }
 
-        vertices.push([0.0, def.radius, 0.0]);
+        vertices.push([0.0, -def.radius, 0.0]);
 
         for i in 0..segments {
             let next = (i + 1) % segments;
-            triangles.push([0, 1 + next, 1 + i]);
+            triangles.push([0, 1 + i, 1 + next]);
         }
 
         for ring in 0..rings - 2 {
@@ -149,7 +149,7 @@ impl MeshBuilder {
         let last_ring_start = 1 + (rings - 2) * segments;
         for i in 0..segments {
             let next = (i + 1) % segments;
-            triangles.push([top, last_ring_start as u32 + i, last_ring_start as u32 + next]);
+            triangles.push([top, last_ring_start as u32 + next, last_ring_start as u32 + i]);
         }
 
         TriangleMesh {

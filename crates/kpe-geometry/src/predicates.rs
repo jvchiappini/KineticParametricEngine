@@ -38,18 +38,32 @@ pub fn sign(value: f64) -> Sign {
 }
 
 pub fn orient2d(pa: DVec3, pb: DVec3, pc: DVec3) -> Sign {
-    let det = (pa.x - pc.x) * (pb.y - pc.y) - (pb.x - pc.x) * (pa.y - pc.y);
-    sign(det)
+    let pa_coord = robust::Coord { x: pa.x, y: pa.y };
+    let pb_coord = robust::Coord { x: pb.x, y: pb.y };
+    let pc_coord = robust::Coord { x: pc.x, y: pc.y };
+    let det = robust::orient2d(pa_coord, pb_coord, pc_coord);
+    if det > 0.0 {
+        Sign::Positive
+    } else if det < 0.0 {
+        Sign::Negative
+    } else {
+        Sign::Zero
+    }
 }
 
 pub fn orient3d(pa: DVec3, pb: DVec3, pc: DVec3, pd: DVec3) -> Sign {
-    let ax = pa.x - pd.x; let ay = pa.y - pd.y; let az = pa.z - pd.z;
-    let bx = pb.x - pd.x; let by = pb.y - pd.y; let bz = pb.z - pd.z;
-    let cx = pc.x - pd.x; let cy = pc.y - pd.y; let cz = pc.z - pd.z;
-    let det = ax * (by * cz - bz * cy)
-            - ay * (bx * cz - bz * cx)
-            + az * (bx * cy - by * cx);
-    sign(det)
+    let pa_coord = robust::Coord3D { x: pa.x, y: pa.y, z: pa.z };
+    let pb_coord = robust::Coord3D { x: pb.x, y: pb.y, z: pb.z };
+    let pc_coord = robust::Coord3D { x: pc.x, y: pc.y, z: pc.z };
+    let pd_coord = robust::Coord3D { x: pd.x, y: pd.y, z: pd.z };
+    let det = robust::orient3d(pa_coord, pb_coord, pc_coord, pd_coord);
+    if det > 0.0 {
+        Sign::Positive
+    } else if det < 0.0 {
+        Sign::Negative
+    } else {
+        Sign::Zero
+    }
 }
 
 pub fn points_are_on_same_side(pts: &[DVec3; 3], plane_point: DVec3, plane_normal: DVec3) -> bool {

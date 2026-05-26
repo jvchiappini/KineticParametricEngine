@@ -9,3 +9,6 @@ kpe-schema = { path = "../kpe-schema" }
 glam.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+robust = "1.2.0"
+csgrs = "0.20.1"
+nalgebra = "0.33"

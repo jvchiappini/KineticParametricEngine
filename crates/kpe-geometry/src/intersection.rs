@@ -37,17 +37,19 @@ fn point_in_triangle_2d(p: DVec3, a: DVec3, b: DVec3, c: DVec3, normal: DVec3) -
     let b2 = [b.x, b.y, b.z];
     let c2 = [c.x, c.y, c.z];
 
-    fn edge_test(px: f64, py: f64, ax: f64, ay: f64, bx: f64, by: f64) -> f64 {
-        (bx - ax) * (py - ay) - (by - ay) * (px - ax)
-    }
-
     let (u0, u1) = u;
-    let e0 = edge_test(p2[u0], p2[u1], a2[u0], a2[u1], b2[u0], b2[u1]);
-    let e1 = edge_test(p2[u0], p2[u1], b2[u0], b2[u1], c2[u0], c2[u1]);
-    let e2 = edge_test(p2[u0], p2[u1], c2[u0], c2[u1], a2[u0], a2[u1]);
+    
+    let p_coord = robust::Coord { x: p2[u0], y: p2[u1] };
+    let a_coord = robust::Coord { x: a2[u0], y: a2[u1] };
+    let b_coord = robust::Coord { x: b2[u0], y: b2[u1] };
+    let c_coord = robust::Coord { x: c2[u0], y: c2[u1] };
 
-    let has_neg = e0 < -EPSILON || e1 < -EPSILON || e2 < -EPSILON;
-    let has_pos = e0 > EPSILON || e1 > EPSILON || e2 > EPSILON;
+    let e0 = robust::orient2d(a_coord, b_coord, p_coord);
+    let e1 = robust::orient2d(b_coord, c_coord, p_coord);
+    let e2 = robust::orient2d(c_coord, a_coord, p_coord);
+
+    let has_neg = e0 < 0.0 || e1 < 0.0 || e2 < 0.0;
+    let has_pos = e0 > 0.0 || e1 > 0.0 || e2 > 0.0;
 
     !(has_neg && has_pos)
 }

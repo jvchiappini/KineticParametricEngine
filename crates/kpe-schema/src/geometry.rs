@@ -58,7 +58,7 @@ pub struct CsgOperation {
     pub tool_transform: Option<TransformOp>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum CsgOpType {
     Union,
     Subtract,

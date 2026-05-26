@@ -15,7 +15,7 @@ type TriangleMesh = {
   triangles: [number, number, number][];
 };
 
-function meshToThree(mesh: TriangleMesh, color: number) {
+function meshToThree(mesh: TriangleMesh, color: number, ghost: boolean = false) {
   const verts = new Float32Array(mesh.vertices.flat());
   const idx = new Uint32Array(mesh.triangles.flat());
   const geometry = new THREE.BufferGeometry();
@@ -28,10 +28,25 @@ function meshToThree(mesh: TriangleMesh, color: number) {
     roughness: 0.4,
     metalness: 0.1,
     side: THREE.DoubleSide,
+    transparent: ghost,
+    opacity: ghost ? 0.2 : 1.0,
+    polygonOffset: true,
+    polygonOffsetFactor: 1,
+    polygonOffsetUnits: 1,
   });
   const obj = new THREE.Mesh(geometry, mat);
-  obj.castShadow = true;
-  obj.receiveShadow = true;
+  obj.castShadow = !ghost;
+  obj.receiveShadow = !ghost;
+
+  // Add wireframe to show the mesh properly
+  const wireMat = new THREE.LineBasicMaterial({
+    color: ghost ? 0xffffff : 0x000000,
+    transparent: true,
+    opacity: ghost ? 0.1 : 0.3,
+  });
+  const wireObj = new THREE.LineSegments(new THREE.WireframeGeometry(geometry), wireMat);
+  obj.add(wireObj);
+
   return obj;
 }
 
@@ -137,15 +152,31 @@ async function main() {
   const sphereMesh: TriangleMesh = JSON.parse(sphereJson);
 
   // Ghost originals
-  const ghostBox = meshToThree(boxMesh, 0x4488ff);
-  ghostBox.material.transparent = true;
-  (ghostBox.material as THREE.MeshStandardMaterial).opacity = 0.2;
-  scene.add(ghostBox);
+  const ghostGroup = new THREE.Group();
+  ghostGroup.position.x = -7.0; // Prevent z-fighting with the Union result at x=0
 
-  const ghostSphere = meshToThree(sphereMesh, 0xff8844);
-  ghostSphere.material.transparent = true;
-  (ghostSphere.material as THREE.MeshStandardMaterial).opacity = 0.2;
-  scene.add(ghostSphere);
+  const ghostBox = meshToThree(boxMesh, 0x4488ff, true);
+  ghostGroup.add(ghostBox);
+
+  const ghostSphere = meshToThree(sphereMesh, 0xff8844, true);
+  ghostGroup.add(ghostSphere);
+
+  scene.add(ghostGroup);
+
+  // Ghost Label
+  const ghostCanvas = document.createElement("canvas");
+  ghostCanvas.width = 256;
+  ghostCanvas.height = 64;
+  const ghostCtx = ghostCanvas.getContext("2d")!;
+  ghostCtx.fillStyle = "#fff";
+  ghostCtx.font = "bold 28px sans-serif";
+  ghostCtx.textAlign = "center";
+  ghostCtx.fillText("Originals", 128, 42);
+  const ghostTex = new THREE.CanvasTexture(ghostCanvas);
+  const ghostSprite = new THREE.Sprite(new THREE.SpriteMaterial({ map: ghostTex, depthWrite: false }));
+  ghostSprite.scale.set(2, 0.5, 1);
+  ghostSprite.position.set(0, 2.8, 0); // Relative to group
+  ghostGroup.add(ghostSprite);
 
   // CSG results
   const results: [string, typeof csg_union, number, number][] = [

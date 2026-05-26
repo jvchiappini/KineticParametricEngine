@@ -1,7 +1,7 @@
-# ADR-002 — Custom CSG Implementation over Own B-Rep Kernel
+# ADR-002 — CSG Engine: csgrs (puro Rust, BSP)
 
-**Status:** `accepted`
-**Date:** 2025-05-25
+**Status:** `implemented — migrated from manifold-csg to csgrs`
+**Date:** 2025-05-25 (last updated: 2026-05-25)
 **Author:** KPE project
 
 ---
@@ -25,19 +25,13 @@ Two requirements came in together and are inseparable:
    CGAL, OpenCASCADE) brings FFI complexity, unpredictable WASM binary sizes, and
    build toolchain requirements we don't control.
 
-These two requirements together rule out every existing library. A black-box CSG
-library cannot satisfy (1) even if it satisfies (2). OpenCASCADE satisfies (1) but
-catastrophically fails (2). Manifold fails both — it is a mesh-level library with no
-face identity, and its WASM story depends on Emscripten.
-
 ---
 
 ## Options Considered
 
-### Option A — Manifold (Google/Blender)
+### Option A — Manifold (Google/Blender) via `manifold-csg`
 
-Mesh-level CSG. Fast, production-proven, used by Blender.
-Rust bindings exist (`manifold-rs`).
+Mesh-level CSG backed by a C++ kernel.
 
 **Pros:**
 - Production-proven (Blender, millions of users)
@@ -47,213 +41,161 @@ Rust bindings exist (`manifold-rs`).
 **Cons:**
 - Works on triangle soups — no face identity after boolean ops
 - Cannot satisfy requirement (1) at all — face provenance is lost
-- `manifold-rs` bindings are thin wrappers around C++, FFI required
+- `manifold-csg` bindings require C++/CMake toolchain
 - WASM compilation goes through Emscripten, not native Rust WASM
-- We would need to reimplement everything anyway when we need B-Rep features
+- The `manifold-csg` crate (`v0.2.0`) failed to compile on our CI/dev  
+  environment due to missing or incompatible C++ toolchain components
 
 ### Option B — OpenCASCADE (OCCT)
 
 Real B-Rep kernel. Used by FreeCAD, Salome, dozens of industrial CADs.
 
-**Pros:**
-- True B-Rep with complete topology (faces have identity, edges are addressable)
-- 30 years of development, extremely reliable
-- Native STEP/IGES export
-- Satisfies requirement (1) completely
-
 **Cons:**
-- Completely fails requirement (2): C++ only, no native Rust bindings, WASM is
-  theoretically possible but produces >100MB binaries with known limitations
+- Completely fails requirement (2): C++ only, no native Rust bindings
 - `opencascade-rs` bindings are unmaintained and incomplete
-- API is extremely verbose — a simple box subtraction is 40+ lines of C++ idioms
 - Build toolchain is a significant burden (CMake, C++17, platform-specific flags)
 
-### Option C — Custom CSG over Custom B-Rep (chosen)
+### Option C — Custom CSG over Custom B-Rep
 
 Implement CSG operations directly on KPE's own B-Rep representation, in pure Rust.
-The algorithm is well-studied — we implement it following the academic literature,
-starting with correctness and expanding robustness iteratively.
 
 **Pros:**
-- Complete control over face identity and provenance through boolean ops
-- Pure Rust — compiles to native and WASM with `cargo build` and `wasm-pack`
-- Zero FFI, zero C++ toolchain requirements
-- The B-Rep and the CSG are one coherent system, not two separate things glued together
-- We understand every line of the geometry code — no black box
-- Bugs are our bugs: findable, fixable, testable
-- The implementation grows with the project's actual needs, not a superset
+- Complete control over face identity and provenance
+- Pure Rust — zero FFI
 
 **Cons:**
-- Significant implementation effort: 4-9 months for a robust implementation
-- Floating point robustness is genuinely hard (requires exact arithmetic predicates)
-- Edge cases in geometry are numerous and subtle
-- We carry the maintenance burden permanently
+- Significant implementation effort: 4–9 months for a robust implementation
+- Floating point robustness is genuinely hard
+
+### Option D — `csgrs` (chosen)
+
+Pure-Rust CSG library using BSP trees. `Polygon/Vertex/Mesh` data model.
+Boolean operations: `union`, `difference`, `intersection` via the `CSG` trait.
+
+**Pros:**
+- 100% pure Rust — `cargo build` is the entire build system
+- No C++ toolchain, no CMake, no Emscripten
+- Compiles cleanly to native and WASM targets
+- Simple, composable API: `Mesh<S>::union(&other)`, `difference`, `intersection`
+- Actively maintained on crates.io (`v0.20.1`)
+- BSP algorithm is well-understood and deterministic
+
+**Cons:**
+- Mesh-level library — no face provenance (same limitation as Manifold)
+- BSP-based CSG can be slower than Manifold on very dense meshes
+- Robustness on degenerate/co-planar triangles depends on the BSP implementation
+- Requires patching `core2` in the workspace manifest (see below)
 
 ---
 
-## Decision
+## Decision (Updated 2026-05-25)
 
-**Option C — Custom CSG over own B-Rep kernel, implemented in pure Rust.**
+**Replace `manifold-csg` (C++ FFI, failed to compile) with `csgrs` (pure Rust, BSP).**
 
-Requirements (1) and (2) are not negotiable and are jointly unsatisfiable by any
-existing library. That makes the decision straightforward, even though it is the
-hardest path to execute.
+### Reasoning
 
-The implementation follows established academic algorithms, in this order of phases:
+1. **Buildability is non-negotiable.** `manifold-csg v0.2.0` could not be compiled
+   due to toolchain requirements (CMake / MSVC). The project was blocked.
+2. **`csgrs` satisfies requirement (2) completely.** It is pure Rust, compiles with
+   `cargo build`, and requires no external toolchain.
+3. **Trade-off on requirement (1) is unchanged.** Both `manifold-csg` and `csgrs`
+   are mesh-level libraries — neither provides face provenance. This is an accepted
+   limitation for the current phase. Full face-identity B-Rep (Option C) remains a
+   long-term goal.
 
-**Phase 1 — B-Rep foundation** (`kpe-geometry/brep.rs`)
+### Known Limitation: `core2` patch
 
-A half-edge data structure. Every face, edge, and vertex has a stable `Id` that
-survives boolean operations. Face provenance is tracked as metadata.
+`csgrs v0.20.1` transitively depends on `core2 = "^0.4"`, which was yanked from
+crates.io. The workspace `Cargo.toml` includes a `[patch.crates-io]` entry that
+sources `core2` from the upstream git repository (same revision that `csgrs` used
+when declaring the dependency):
+
+```toml
+[patch.crates-io]
+core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84bcb0f235b12e21351e0c69767958efe2a7" }
+```
+
+This patch can be removed once `csgrs` upgrades its own `core2` dependency or the
+package is republished to crates.io.
+
+---
+
+## Implementation
+
+### Architecture (`crates/kpe-geometry/src/csg.rs`)
 
 ```
-HalfEdge data structure:
-  Vertex { id: VertexId, position: Vec3 }
-  HalfEdge { id: HalfEdgeId, vertex: VertexId, face: FaceId, twin: HalfEdgeId, next: HalfEdgeId }
-  Face { id: FaceId, half_edge: HalfEdgeId, metadata: FaceMetadata }
-
-FaceMetadata {
-  source_solid: SolidId,       // which solid this face came from
-  source_face: FaceId,         // original face before the boolean op
-  operation: Option<CsgOpId>,  // which CSG operation produced this face (if any)
-}
+TriangleMesh  →  [triangle_mesh_to_csg]  →  Mesh<()>
+                                               │
+                                          CSG trait
+                                         .union / .difference / .intersection
+                                               │
+Mesh<()>  →  [csg_to_triangle_mesh]  →  TriangleMesh
 ```
 
-**Phase 2 — Exact arithmetic predicates** (`kpe-geometry/predicates.rs`)
+**Conversion — KPE → csgrs:**
+Each triangle in `TriangleMesh` becomes one `Polygon<()>` with three `Vertex`
+entries. Vertex normals are computed as the face normal (flat shading). Degenerate
+triangles (zero-area) are silently dropped before entering the BSP kernel.
 
-Robust geometric predicates following Shewchuk (1997): `orient2d`, `orient3d`,
-`in_circle`, `in_sphere`. These use adaptive precision arithmetic to guarantee
-correct sign results regardless of floating point rounding. This is the foundation
-that makes the rest of the algorithm reliable.
+**Conversion — csgrs → KPE:**
+Each `Polygon` in the result is triangulated via `Polygon::triangulate()` which
+returns `Vec<[Vertex; 3]>`. Vertices are emitted in a flat (non-indexed) layout —
+each triangle owns its three vertices independently.
 
-**Phase 3 — Triangle-triangle intersection** (`kpe-geometry/intersection.rs`)
+### Dependencies added
 
-Möller (1997) algorithm with exact predicate guards. Handles all 9 intersection
-cases between two triangles in 3D. Output is a line segment or a point, with
-exact endpoint positions.
+| Crate       | Version  | Purpose                        |
+|-------------|----------|--------------------------------|
+| `csgrs`     | 0.20.1   | CSG boolean operations (BSP)   |
+| `nalgebra`  | 0.33     | `Point3` / `Vector3` types     |
 
-**Phase 4 — BVH for spatial acceleration** (`kpe-geometry/bvh.rs`)
-
-An AABB (axis-aligned bounding box) BVH tree using SAH (Surface Area Heuristic)
-partitioning. Reduces intersection queries from O(n²) to O(n log n).
-Without this, CSG on meshes with >1000 triangles is unusably slow.
-
-**Phase 5 — Face re-triangulation** (`kpe-geometry/retriangulation.rs`)
-
-When two faces intersect, both must be re-triangulated incorporating the intersection
-segments. Uses constrained Delaunay triangulation (Shewchuk's Triangle algorithm
-adapted for our needs) to produce non-degenerate triangles.
-
-**Phase 6 — Inside/outside classification** (`kpe-geometry/classify.rs`)
-
-For a subtract operation: which faces of mesh A are inside mesh B (to be removed),
-and which faces of mesh B are inside mesh A (to be kept as the hole surface)?
-Uses winding number classification — more robust than simple ray casting for
-non-manifold inputs.
-
-**Phase 7 — Mesh stitching** (`kpe-geometry/stitch.rs`)
-
-Assembles the classified and re-triangulated faces into a closed, manifold output
-mesh. Welds vertices within epsilon tolerance. Verifies the output is manifold
-(every edge has exactly two adjacent faces).
+`manifold-csg` has been removed entirely.
 
 ---
 
-## Implementation Timeline
+## Implementation Status (as of 2026-05-25)
 
-This is not a sprint — it is a multi-month foundational effort.
-
-| Phase | Estimated effort | Dependency |
-|-------|-----------------|------------|
-| B-Rep + half-edge | 2-3 weeks | — |
-| Exact predicates | 1-2 weeks | — |
-| Triangle-triangle intersection | 2-3 weeks | Predicates |
-| BVH | 1-2 weeks | — |
-| Re-triangulation | 3-5 weeks | Intersection, BVH |
-| Classification | 2-3 weeks | BVH, Predicates |
-| Stitching | 2-4 weeks | All above |
-| **Total (optimistic)** | **~4 months** | |
-| **Total (realistic)** | **~7 months** | |
-
-During this period, simple geometry (boxes, cylinders, spheres) and transforms
-work without CSG. The parametric solver, the UI, and the fabrication pipeline
-can be developed in parallel — they do not depend on CSG being done.
-
----
-
-## Robustness Strategy
-
-Floating point is the central challenge in computational geometry. Our strategy:
-
-1. **Exact predicates for topology decisions** — any decision that determines
-   the *structure* of the output (is this point inside or outside? do these
-   segments intersect?) uses exact arithmetic. We never use `a < b` for
-   a geometric predicate — we use `orient3d(a, b, c, d).is_positive()`.
-
-2. **Floating point for positions** — actual vertex coordinates use `f64`.
-   The error from f64 position computation is bounded and acceptable for
-   millimeter-precision CAD. We only need exactness for sign decisions.
-
-3. **Epsilon-based deduplication** — vertices within `1e-6 mm` are considered
-   identical during stitching. The epsilon is configurable per `KPERecipe`
-   via the `precision` field.
-
-4. **Property-based testing** — every phase has randomized tests that verify
-   geometric invariants (output is manifold, face count is correct, volume is
-   preserved within tolerance). We use `proptest` for this.
-
----
-
-## What This Gives Us That No Library Can
-
-Once the CSG is implemented over our B-Rep:
-
-- **Face references survive boolean ops** — a sketch can be drawn on "the top
-  face of this box after subtracting that cylinder", and the reference remains
-  valid even if the cylinder changes size.
-
-- **Edge loops are first-class** — the boundary of a CSG result is a set of
-  addressable half-edges, not just a set of triangles. This is required for
-  generating accurate DXF cut lines.
-
-- **Operation history is structural** — we know that face F came from solid A,
-  was modified by operation Op3, and its surface normal was flipped during
-  the subtract. This powers the parametric rebuild: when a parameter changes,
-  we know exactly which faces need to be recomputed.
-
-- **STEP export becomes possible** — STEP requires B-Rep, not meshes. With our
-  own B-Rep kernel, STEP export is a serialization problem, not an architectural one.
+| Phase | File | Status | Notes |
+|-------|------|--------|-------|
+| B-Rep foundation | `brep.rs` | ✅ Scaffolded | Basic half-edge structure exists |
+| CSG Integration | `csg.rs` | ✅ Done | Replaced manifold-csg with csgrs |
+| Tri-Tri Intersection | — | ⏭️ Delegated | Handled by csgrs BSP kernel |
+| BVH acceleration | — | ⏭️ Delegated | Handled by csgrs BSP kernel |
+| Triangle splitting | — | ⏭️ Delegated | Handled by csgrs BSP kernel |
+| Classification | — | ⏭️ Delegated | Handled by csgrs BSP kernel |
+| Mesh stitching | — | ⏭️ Delegated | Handled by csgrs BSP kernel |
+| WASM Support | — | ✅ Unblocked | Pure Rust, no Emscripten needed |
 
 ---
 
 ## Consequences
 
 **Positive:**
-- Requirements (1) and (2) are both satisfied — face identity and pure Rust
-- Complete understanding of every geometry operation in the codebase
-- No FFI, no C++ toolchain, `cargo build` is the entire build system
-- Foundation for future B-Rep features: fillets, chamfers, shell operations
-- STEP/DXF export is architecturally clean
+- Build is unblocked on all platforms (`cargo build` is sufficient)
+- WASM compilation is now straightforward (`wasm-pack build`)
+- Zero external toolchain requirements (no CMake, no MSVC CRT issues)
+- API is clean and idiomatic Rust
 
-**Negative / trade-offs:**
-- Significant upfront investment before CSG is usable
-- We carry the maintenance burden for this code permanently
-- Robustness bugs in computational geometry are subtle and hard to reproduce
-- Community contributions to this module require computational geometry knowledge
+**Negative / Trade-offs:**
+- No face provenance — same limitation as Manifold. Full B-Rep identity
+  requires implementing Option C in the future.
+- A `[patch.crates-io]` entry is needed in the workspace for `core2` until
+  `csgrs` updates its dependency tree.
 
 **Neutral / watch out for:**
-- Simple geometry (no CSG) works from day 1 — don't block other development on this
-- The `kpe-geometry/csg.rs` module is the most complex in the codebase by far —
-  it must be exceptionally well documented and tested
-- Any change to `brep.rs` (the half-edge structure) is a breaking change that
-  cascades through the entire geometry pipeline — treat it like a schema change
+- BSP-based CSG can produce T-junctions on near-coplanar faces. Test with
+  intentionally degenerate geometry.
+- The flat (non-deduplicated) vertex layout from `csg_to_triangle_mesh` means
+  vertex count grows with triangle count. Deduplicate if a downstream consumer
+  requires indexed geometry.
 
 ---
 
 ## References
 
-- Shewchuk, J.R. (1997). *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates.* Discrete & Computational Geometry.
-- Möller, T. (1997). *A Fast Triangle-Triangle Intersection Test.* Journal of Graphics Tools.
+- csgrs crate: <https://docs.rs/csgrs/latest/csgrs/>
+- core2 patch source: <https://github.com/bbqsrc/core2>
+- Shewchuk, J.R. (1997). *Adaptive Precision Floating-Point Arithmetic and Fast Robust Geometric Predicates.*
 - Laidlaw, D.H., Trumbore, W.B., Hughes, J.F. (1986). *Constructive Solid Geometry for Polyhedral Objects.* SIGGRAPH.
-- Zhou, Q., Grinspun, E., Zorin, D., Jacobson, A. (2016). *Mesh Arrangements for Solid Geometry.* ACM Transactions on Graphics. (basis for Manifold's algorithm — useful reference even though we implement our own)
-- de Berg, M. et al. *Computational Geometry: Algorithms and Applications.* 3rd ed. Springer. (chapters 6, 11, 13)
+- de Berg, M. et al. *Computational Geometry: Algorithms and Applications.* 3rd ed. Springer.
