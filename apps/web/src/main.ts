@@ -119,6 +119,47 @@ const RECIPES: Record<string, { label: string; recipe: any }> = {
       operations: [],
     }),
   },
+  groups: {
+    label: "Groups",
+    recipe: makeRecipe({
+      id: "root",
+      node_type: "Compound",
+      transform: null,
+      children: [
+        {
+          id: "rotated-group",
+          node_type: "Compound",
+          transform: { translation: null, rotation: [0, 45, 0], scale: null },
+          children: [
+            {
+              id: "box",
+              node_type: { Box: { width: 2, height: 1, depth: 0.5 } },
+              transform: null,
+              children: [],
+              operations: [],
+            },
+            {
+              id: "nested-group",
+              node_type: "Compound",
+              transform: { translation: [2.5, 0.5, 0], rotation: null, scale: null },
+              children: [
+                {
+                  id: "sphere",
+                  node_type: { Sphere: { radius: 0.8 } },
+                  transform: null,
+                  children: [],
+                  operations: [],
+                },
+              ],
+              operations: [],
+            },
+          ],
+          operations: [],
+        },
+      ],
+      operations: [],
+    }),
+  },
   sweep: {
     label: "Sweep",
     recipe: makeRecipe({
@@ -280,7 +321,8 @@ async function main() {
       case "csg": camera.position.set(6, 4, 8); break;
       case "extrude": camera.position.set(6, 4, 8); break;
       case "revolve": camera.position.set(8, 6, 8); break;
-      case "sweep": camera.position.set(5, 4, 6); break;
+      case "groups":  camera.position.set(5, 3, 6); break;
+      case "sweep":  camera.position.set(5, 4, 6); break;
     }
     controls.target.set(0, 0, 0);
     controls.update();

@@ -1,7 +1,8 @@
 use std::collections::HashMap;
+use glam::{DMat4, DVec3, DVec4};
 use kpe_schema::geometry::{
     BoxDef, CylinderDef, SphereDef, GeometryNode, GeometryNodeType, TriangleMesh,
-    SketchDef,
+    SketchDef, TransformOp,
 };
 use crate::extrude::{extrude_sketch, revolve_sketch, sweep_sketch};
 
@@ -15,7 +16,14 @@ impl MeshBuilder {
     }
 
     pub fn build_from_node(&self, node: &GeometryNode) -> TriangleMesh {
-        match &node.node_type {
+        self.build_with_transform(node, DMat4::IDENTITY)
+    }
+
+    fn build_with_transform(&self, node: &GeometryNode, parent_to_world: DMat4) -> TriangleMesh {
+        let local = local_matrix(&node.transform);
+        let world = parent_to_world * local;
+
+        let mut mesh = match &node.node_type {
             GeometryNodeType::Box(box_def) => build_box(box_def),
             GeometryNodeType::Cylinder(cyl_def) => build_cylinder(cyl_def),
             GeometryNodeType::Sphere(sphere_def) => build_sphere(sphere_def),
@@ -60,7 +68,7 @@ impl MeshBuilder {
                 let mut verts = Vec::new();
                 let mut tris = Vec::new();
                 for child in &node.children {
-                    let child_mesh = self.build_from_node(child);
+                    let child_mesh = self.build_with_transform(child, world);
                     let base = verts.len() as u32;
                     verts.extend(child_mesh.vertices);
                     for t in child_mesh.triangles {
@@ -74,13 +82,53 @@ impl MeshBuilder {
                     triangles: tris,
                 }
             }
+        };
+
+        // Apply world transform to all vertices
+        if world != DMat4::IDENTITY {
+            for v in &mut mesh.vertices {
+                let p = world * DVec4::new(v[0], v[1], v[2], 1.0);
+                v[0] = p.x / p.w;
+                v[1] = p.y / p.w;
+                v[2] = p.z / p.w;
+            }
         }
+
+        mesh
     }
 }
 
 impl Default for MeshBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ── Compute local transform matrix ───────────────────────────────
+
+fn local_matrix(tf: &Option<TransformOp>) -> DMat4 {
+    match tf {
+        Some(t) => {
+            let mut mat = DMat4::IDENTITY;
+
+            if let Some(trans) = &t.translation {
+                mat = DMat4::from_translation(DVec3::new(trans[0], trans[1], trans[2]));
+            }
+
+            if let Some(rot) = &t.rotation {
+                let rx = DMat4::from_rotation_x(rot[0].to_radians());
+                let ry = DMat4::from_rotation_y(rot[1].to_radians());
+                let rz = DMat4::from_rotation_z(rot[2].to_radians());
+                mat = mat * rz * ry * rx;
+            }
+
+            if let Some(scale) = &t.scale {
+                mat = mat * DMat4::from_scale(DVec3::new(scale[0], scale[1], scale[2]));
+            }
+
+            mat
+        }
+        None => DMat4::IDENTITY,
     }
 }
 
