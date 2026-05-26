@@ -57,7 +57,9 @@ function makeSphere(id: string, r: number) {
 
 function makeRecipe(children: any[]) {
   return {
-    metadata: { name: "CSG Demo", version: "0.1.0" },
+    version: "0.1.0",
+    metadata: { name: "CSG Demo", author: null, description: null, created_at: null, tags: [] },
+    blocks: {},
     scene: {
       id: "root",
       node_type: "Compound",
@@ -65,8 +67,10 @@ function makeRecipe(children: any[]) {
       children,
       operations: [],
     },
+    joints: [],
+    constraints: [],
     materials: {},
-    rules: [],
+    precision: null,
   };
 }
 
