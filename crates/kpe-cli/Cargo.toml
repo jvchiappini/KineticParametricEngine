@@ -1,0 +1,11 @@
+[package]
+name = "kpe-cli"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+kpe-schema = { path = "../kpe-schema" }
+kpe-parametric = { path = "../kpe-parametric" }
+kpe-geometry = { path = "../kpe-geometry" }
+serde_json.workspace = true

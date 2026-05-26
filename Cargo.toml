@@ -8,6 +8,7 @@ members = [
     "crates/kpe-fabrication",
     "crates/kpe-material",
     "crates/kpe-wasm",
+    "crates/kpe-cli",
 ]
 
 [workspace.package]

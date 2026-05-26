@@ -26,12 +26,24 @@ impl MeshBuilder {
                 uvs: vec![],
                 triangles: vec![],
             },
-            GeometryNodeType::Compound => TriangleMesh {
-                vertices: vec![],
-                normals: vec![],
-                uvs: vec![],
-                triangles: vec![],
-            },
+            GeometryNodeType::Compound => {
+                let mut verts = Vec::new();
+                let mut tris = Vec::new();
+                for child in &node.children {
+                    let child_mesh = self.build_from_node(child);
+                    let base = verts.len() as u32;
+                    verts.extend(child_mesh.vertices);
+                    for t in child_mesh.triangles {
+                        tris.push([t[0] + base, t[1] + base, t[2] + base]);
+                    }
+                }
+                TriangleMesh {
+                    vertices: verts,
+                    normals: vec![],
+                    uvs: vec![],
+                    triangles: tris,
+                }
+            }
         }
     }
 
