@@ -1,5 +1,19 @@
+pub mod entities;
+pub mod constraints;
+pub mod solver;
+pub mod inference;
+pub mod boolean;
+pub mod document;
+
 use kpe_schema::geometry::{Sketch2D, SketchDef, SketchPrimitive};
 use glam::DVec2;
+
+pub use entities::*;
+pub use constraints::Constraint;
+pub use solver::Solver;
+pub use inference::{InferenceEngine, SnapResult};
+pub use boolean::{boolean_contours, BooleanOp, extrude_contour_to_3d};
+pub use document::SketchDocument;
 
 pub struct SketchEngine;
 
@@ -46,6 +60,85 @@ impl Default for SketchEngine {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Ear-clipping triangulation for a simple polygon.
+///
+/// The contour must be a closed simple polygon (last point != first).
+/// Returns triangle indices into the original points list.
+pub fn triangulate_contour(contour: &[DVec2]) -> Vec<[u32; 3]> {
+    let n = contour.len();
+    if n < 3 {
+        return vec![];
+    }
+
+    let mut remaining: Vec<usize> = (0..n).collect();
+    let mut triangles = Vec::new();
+
+    while remaining.len() > 3 {
+        let len = remaining.len();
+        let mut ear_found = false;
+
+        for i in 0..len {
+            let prev = remaining[(i + len - 1) % len];
+            let curr = remaining[i];
+            let next = remaining[(i + 1) % len];
+
+            let a = contour[prev];
+            let b = contour[curr];
+            let c = contour[next];
+
+            let cross = (b - a).perp_dot(c - b);
+            if cross <= 0.0 {
+                continue;
+            }
+
+            let mut is_ear = true;
+            for &j in &remaining {
+                if j == prev || j == curr || j == next {
+                    continue;
+                }
+                if point_in_triangle(contour[j], a, b, c) {
+                    is_ear = false;
+                    break;
+                }
+            }
+
+            if is_ear {
+                triangles.push([prev as u32, curr as u32, next as u32]);
+                remaining.remove(i);
+                ear_found = true;
+                break;
+            }
+        }
+
+        if !ear_found {
+            let last = remaining.len();
+            if last >= 3 {
+                triangles.push([remaining[0] as u32, remaining[1] as u32, remaining[2] as u32]);
+            }
+            break;
+        }
+    }
+
+    if remaining.len() == 3 {
+        triangles.push([remaining[0] as u32, remaining[1] as u32, remaining[2] as u32]);
+    }
+
+    triangles
+}
+
+fn point_in_triangle(p: DVec2, a: DVec2, b: DVec2, c: DVec2) -> bool {
+    let cross1 = (b - a).perp_dot(p - a);
+    let cross2 = (c - b).perp_dot(p - b);
+    let cross3 = (a - c).perp_dot(p - c);
+    (cross1 >= 0.0 && cross2 >= 0.0 && cross3 >= 0.0)
+        || (cross1 <= 0.0 && cross2 <= 0.0 && cross3 <= 0.0)
+}
+
+/// Returns true if p is inside the axis-aligned rectangle.
+pub fn point_in_rect(p: DVec2, x: f64, y: f64, w: f64, h: f64) -> bool {
+    p.x >= x && p.x <= x + w && p.y >= y && p.y <= y + h
 }
 
 pub fn tessellate_sketch(sketch: &SketchDef) -> Vec<Vec<DVec2>> {

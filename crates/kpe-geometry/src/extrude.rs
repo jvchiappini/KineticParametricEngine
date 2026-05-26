@@ -195,14 +195,21 @@ fn sweep_path_positions(path: &SweepPath, segments: u32) -> Vec<(DVec3, DQuat)> 
                 let x = radius * theta.cos();
                 let z = radius * theta.sin();
                 let y = i as f64 * height_step;
-                let dy_dt = pitch / std::f64::consts::TAU;
+                // Helix tangent: derivative of (r·cos θ, h·θ/(2π), r·sin θ)
                 let dx_dt = -radius * theta.sin();
+                let dy_dt = pitch / std::f64::consts::TAU;
                 let dz_dt = radius * theta.cos();
                 let tangent = DVec3::new(dx_dt, dy_dt, dz_dt).normalize();
-                let up = DVec3::Y;
-                let right = up.cross(tangent).normalize();
-                let real_up = tangent.cross(right).normalize();
-                let rot = DQuat::from_mat3(&DMat3::from_cols(right, real_up, tangent));
+                // Pick a stable "world up" that avoids degeneracy with the tangent
+                let world_up = if tangent.dot(DVec3::Y).abs() < 0.95 {
+                    DVec3::Y
+                } else {
+                    DVec3::Z
+                };
+                let right = world_up.cross(tangent).normalize();
+                let frame_up = tangent.cross(right).normalize();
+                // Columns: right (local X), frame_up (local Y), tangent (local Z)
+                let rot = DQuat::from_mat3(&DMat3::from_cols(right, frame_up, tangent));
                 (DVec3::new(x, y, z), rot)
             }).collect()
         }
@@ -211,7 +218,7 @@ fn sweep_path_positions(path: &SweepPath, segments: u32) -> Vec<(DVec3, DQuat)> 
 
 fn sweep_contour(
     contour: &[DVec2],
-    plane: &SketchPlane,
+    _plane: &SketchPlane,          // plane is intentionally ignored here
     positions: &[(DVec3, DQuat)],
     cap: bool,
 ) -> TriangleMesh {
@@ -220,12 +227,21 @@ fn sweep_contour(
         return empty();
     }
 
-    let profile_pts: Vec<DVec3> = contour.iter().map(|p| project_to_3d(*p, plane)).collect();
+    // Use the 2D profile coordinates directly as (local_x, local_y, 0) offsets
+    // inside the path frame.  Projecting through the sketch plane first would
+    // put the profile into world space, so the subsequent frame rotation would
+    // double-transform and collapse the cross-section into a flat ribbon.
+    let profile_local: Vec<DVec3> = contour
+        .iter()
+        .map(|p| DVec3::new(p.x, p.y, 0.0))
+        .collect();
+
     let mut verts: Vec<[f64; 3]> = Vec::new();
     let mut tris: Vec<[u32; 3]> = Vec::new();
 
     for (pos, rot) in positions {
-        for p in &profile_pts {
+        for p in &profile_local {
+            // rotate the local profile point into the path frame, then translate
             let v = *rot * *p + *pos;
             verts.push([v.x, v.y, v.z]);
         }
@@ -239,16 +255,19 @@ fn sweep_contour(
             let r1 = ring as u32 * pitch + next as u32;
             let r2 = (ring as u32 + 1) * pitch + i as u32;
             let r3 = (ring as u32 + 1) * pitch + next as u32;
-            tris.push([r0, r1, r3]);
-            tris.push([r0, r3, r2]);
+            // Winding: outward normals pointing away from the tube axis
+            tris.push([r0, r2, r3]);
+            tris.push([r0, r3, r1]);
         }
     }
 
     if cap {
         let last = (positions.len() - 1) as u32 * pitch;
         for i in 1..n - 1 {
-            tris.push([0u32, i as u32 + 1, i as u32]);
-            tris.push([last, last + i as u32, last + i as u32 + 1]);
+            // start cap: CCW when viewed from outside (looking down path)
+            tris.push([0u32, i as u32, i as u32 + 1]);
+            // end cap: CCW when viewed from outside (looking up path)
+            tris.push([last, last + i as u32 + 1, last + i as u32]);
         }
     }
 

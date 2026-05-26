@@ -3,10 +3,9 @@ import { OrbitControls } from "three/addons/controls/OrbitControls.js";
 import init, {
   hello,
   build_mesh,
-  csg_union,
-  csg_subtract,
-  csg_intersect,
 } from "../kpe-wasm/kpe_wasm.js";
+import { SketchUI } from "./sketch-ui";
+import type { ToolType } from "./sketch-engine";
 
 type TriangleMesh = {
   vertices: [number, number, number][];
@@ -321,8 +320,8 @@ async function main() {
       case "csg": camera.position.set(6, 4, 8); break;
       case "extrude": camera.position.set(6, 4, 8); break;
       case "revolve": camera.position.set(8, 6, 8); break;
-      case "groups":  camera.position.set(5, 3, 6); break;
-      case "sweep":  camera.position.set(5, 4, 6); break;
+      case "groups": camera.position.set(5, 3, 6); break;
+      case "sweep": camera.position.set(5, 4, 6); break;
     }
     controls.target.set(0, 0, 0);
     controls.update();
@@ -353,10 +352,179 @@ async function main() {
     buildFromRecipe(editor.value);
   });
 
+  // ── Sketch Mode ──────────────────────────────────────────────────
+
+  const toolbar = document.getElementById("toolbar")!;
+  const sketchBtn = document.getElementById("sketch-btn")!;
+  const sketchUI = new SketchUI(scene, renderer);
+  let isSketchMode = false;
+
+  const sketchToolBtns = document.querySelectorAll<HTMLButtonElement>("[data-sketch-tool]");
+
+  function activateSketchMode() {
+    isSketchMode = true;
+    toolbar.classList.add("sketch-mode");
+    controls.enabled = false;
+    sketchUI.activate();
+    statusEl.textContent = "Sketch mode — draw on the grid";
+    panel.classList.add("collapsed");
+    scene.remove(meshGroup);
+  }
+
+  function deactivateSketchMode() {
+    isSketchMode = false;
+    toolbar.classList.remove("sketch-mode");
+    controls.enabled = true;
+    sketchUI.deactivate();
+    scene.add(meshGroup);
+    updateCamera();
+    statusEl.textContent = `${triCount.textContent || "OK"}`;
+    panel.classList.remove("collapsed");
+  }
+
+  sketchBtn.addEventListener("click", () => {
+    if (isSketchMode) {
+      deactivateSketchMode();
+      sketchBtn.classList.remove("active");
+    } else {
+      activateSketchMode();
+      sketchBtn.classList.add("active");
+    }
+  });
+
+  sketchToolBtns.forEach((btn) => {
+    btn.addEventListener("click", () => {
+      sketchToolBtns.forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      const tool = btn.dataset.sketchTool as ToolType;
+      sketchUI.setTool(tool);
+      statusEl.textContent = `Tool: ${tool}`;
+    });
+  });
+
+  sketchUI.onExtrudeJSON = (_json: string) => {
+    const engine = sketchUI.engineInstance;
+    const distance = parseFloat((document.getElementById("extrude-distance") as HTMLInputElement).value) || 3.0;
+    const meshJson = engine.extrude(distance);
+    if (!meshJson) return;
+    try {
+      const resultMesh: TriangleMesh = JSON.parse(meshJson);
+      scene.remove(meshGroup);
+      meshGroup.traverse((c) => {
+        if (c instanceof THREE.Mesh) {
+          c.geometry.dispose();
+          if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+          else c.material.dispose();
+        }
+      });
+      meshGroup = new THREE.Group();
+
+      const obj = meshToThree(resultMesh, 0x88aaff);
+
+      // Orient the mesh according to the selected plane
+      if (sketchUI.plane === "XY") {
+        obj.rotation.x = Math.PI / 2;
+        obj.position.z += sketchUI.offset;
+      } else if (sketchUI.plane === "XZ") {
+        // Default orientation in engine is XZ anyway? Wait, engine extrudes from XY plane conceptually?
+        // Let's rely on how the engine outputs, and adjust.
+        // Actually the engine outputs 'mesh' based on points in 2D.
+        // It extrudes along Z in the engine.
+        // Our 3D mapping: X -> X, Y -> Z. So we might need rotation.
+        // Assuming engine extrudes in Z. In three.js we want it in Y if it's on XZ floor.
+        obj.rotation.x = -Math.PI / 2;
+        obj.position.y += sketchUI.offset;
+      } else if (sketchUI.plane === "YZ") {
+        obj.rotation.y = Math.PI / 2;
+        obj.rotation.x = -Math.PI / 2;
+        obj.position.x += sketchUI.offset;
+      }
+
+      meshGroup.add(obj);
+      scene.add(meshGroup);
+      const count = resultMesh.triangles?.length || 0;
+      triCount.textContent = `${count} triangles`;
+      statusEl.textContent = `Extruded · ${count} tris`;
+    } catch (e: any) {
+      statusEl.textContent = `Extrude error: ${e}`;
+    }
+  };
+
+  // Properties Panel Handlers
+  const planeSelect = document.getElementById("sketch-plane") as HTMLSelectElement;
+  const offsetInput = document.getElementById("plane-offset") as HTMLInputElement;
+  const extrudeInput = document.getElementById("extrude-distance") as HTMLInputElement;
+  const visualizeBtn = document.getElementById("sketch-visualize") as HTMLButtonElement;
+
+  planeSelect.addEventListener("change", () => {
+    if (isSketchMode) {
+      sketchUI.plane = planeSelect.value as any;
+      sketchUI.buildGrid();
+      sketchUI.updateCamera();
+    }
+  });
+
+  offsetInput.addEventListener("input", () => {
+    if (isSketchMode) {
+      sketchUI.offset = parseFloat(offsetInput.value) || 0;
+      sketchUI.buildGrid();
+      sketchUI.updateCamera();
+    }
+  });
+
+  visualizeBtn.addEventListener("click", () => {
+    if (isSketchMode) {
+      sketchUI.onExtrudeJSON!(sketchUI.engineInstance.state.docJson);
+      deactivateSketchMode();
+      sketchBtn.classList.remove("active");
+    }
+  });
+
+  // Build from sketch
+  buildBtn.addEventListener("click", () => {
+    if (isSketchMode) {
+      const engine = sketchUI.engineInstance;
+      const meshJson = engine.extrude(3.0);
+      if (meshJson) {
+        editor.value = meshJson;
+        try {
+          const mesh: TriangleMesh = JSON.parse(meshJson);
+          scene.remove(meshGroup);
+          meshGroup.traverse((c) => {
+            if (c instanceof THREE.Mesh) {
+              c.geometry.dispose();
+              if (Array.isArray(c.material)) c.material.forEach((m) => m.dispose());
+              else c.material.dispose();
+            }
+          });
+          meshGroup = new THREE.Group();
+          const obj = meshToThree(mesh, 0x88aaff);
+          if (sketchUI.plane === "XY") {
+            obj.rotation.x = Math.PI / 2;
+            obj.position.z += sketchUI.offset;
+          } else if (sketchUI.plane === "XZ") {
+            obj.rotation.x = -Math.PI / 2;
+            obj.position.y += sketchUI.offset;
+          } else if (sketchUI.plane === "YZ") {
+            obj.rotation.y = Math.PI / 2;
+            obj.rotation.x = -Math.PI / 2;
+            obj.position.x += sketchUI.offset;
+          }
+          meshGroup.add(obj);
+          scene.add(meshGroup);
+          triCount.textContent = `${mesh.triangles?.length || 0} triangles`;
+          statusEl.textContent = `Built from sketch`;
+        } catch (e: any) {
+          statusEl.textContent = `Build error: ${e}`;
+        }
+      }
+    }
+  });
+
   // Toggle panel
   const panel = document.getElementById("panel")!;
   document.getElementById("toggle-panel")!.addEventListener("click", () => {
-    panel.classList.toggle("collapsed");
+    if (!isSketchMode) panel.classList.toggle("collapsed");
   });
 
   // Keyboard shortcut
@@ -378,6 +546,9 @@ async function main() {
     requestAnimationFrame(animate);
     controls.update();
     renderer.render(scene, camera);
+    if (sketchUI.active && sketchUI.activeCamera) {
+      renderer.render(scene, sketchUI.activeCamera);
+    }
   }
   animate();
 }

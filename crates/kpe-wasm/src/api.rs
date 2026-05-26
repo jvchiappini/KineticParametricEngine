@@ -1,18 +1,102 @@
 use wasm_bindgen::prelude::*;
 use kpe_schema::recipe::KPERecipe;
 use kpe_schema::geometry::TriangleMesh;
-use kpe_parametric::Solver;
+use kpe_parametric::Solver as ParamSolver;
 use kpe_geometry::csg::CsgKernel;
+use kpe_geometry::sketch::SketchDocument;
+
+#[wasm_bindgen]
+pub fn hello() -> String {
+    "KPE Engine v0.1 — constraint solver ready".to_string()
+}
+
+// ── Sketch Document ──────────────────────────────────────────────
+
+#[wasm_bindgen]
+pub fn sketch_new() -> String {
+    let doc = SketchDocument::new();
+    serde_json::to_string(&doc).unwrap_or_default()
+}
+
+#[wasm_bindgen]
+pub fn sketch_from_json(json: &str) -> Result<String, JsValue> {
+    let doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_add_line(json: &str, x1: f64, y1: f64, x2: f64, y2: f64) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    doc.add_line_between(x1, y1, x2, y2);
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_add_rect(json: &str, x: f64, y: f64, w: f64, h: f64) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    doc.add_rectangle(x, y, w, h);
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_add_constraint(json: &str, constraint_json: &str) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse doc: {e}")))?;
+    let c: kpe_geometry::sketch::Constraint = serde_json::from_str(constraint_json)
+        .map_err(|e| JsValue::from_str(&format!("Parse constraint: {e}")))?;
+    doc.add_constraint(c);
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_solve(json: &str) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    doc.solve().map_err(|e| JsValue::from_str(&e))?;
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_snap(json: &str, x: f64, y: f64, grid: f64) -> Result<String, JsValue> {
+    let doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    let result = doc.snap(x, y, grid);
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_extrude(json: &str, distance: f64) -> Result<String, JsValue> {
+    let doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    let (_verts, _tris) = doc.extrude_contours(distance);
+    let mesh = TriangleMesh {
+        vertices: _verts,
+        normals: vec![],
+        uvs: vec![],
+        triangles: _tris,
+    };
+    serde_json::to_string(&mesh)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+// ── Original recipe functions ────────────────────────────────────
 
 #[wasm_bindgen]
 pub fn resolve_recipe(json: &str) -> Result<String, JsValue> {
     let recipe: KPERecipe = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
-
-    let solver = Solver::new();
+    let solver = ParamSolver::new();
     let resolved = solver.resolve(&recipe)
         .map_err(|e| JsValue::from_str(&format!("Solver error: {e:?}")))?;
-
     serde_json::to_string(&resolved)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
 }
@@ -21,9 +105,7 @@ pub fn resolve_recipe(json: &str) -> Result<String, JsValue> {
 pub fn build_mesh(json: &str) -> Result<String, JsValue> {
     let recipe: KPERecipe = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
-
     let mesh = kpe_geometry::mesh::build_mesh_from_node(&recipe.scene);
-
     serde_json::to_string(&mesh)
         .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
 }
@@ -65,6 +147,19 @@ pub fn csg_intersect(a_json: &str, b_json: &str) -> Result<String, JsValue> {
 }
 
 #[wasm_bindgen]
-pub fn hello() -> String {
-    "KPE Engine ready".to_string()
+pub fn extrude_face(mesh_json: &str, face_idx: usize, distance: f64) -> Result<String, JsValue> {
+    let mesh: TriangleMesh = serde_json::from_str(mesh_json)
+        .map_err(|e| JsValue::from_str(&format!("Parse mesh: {e}")))?;
+    let result = kpe_geometry::push_pull::extrude_face(&mesh, face_idx, distance);
+    serde_json::to_string(&result)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn build_mesh_from_recipe(json: &str) -> Result<String, JsValue> {
+    let recipe: KPERecipe = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse error: {e}")))?;
+    let mesh = kpe_geometry::mesh::build_mesh_from_node(&recipe.scene);
+    serde_json::to_string(&mesh)
+        .map_err(|e| JsValue::from_str(&format!("Serialize error: {e}")))
 }

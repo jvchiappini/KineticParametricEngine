@@ -12,3 +12,14 @@ thiserror.workspace = true
 robust = "1.2.0"
 csgrs = "0.20.1"
 nalgebra = "0.33"
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "csg"
+harness = false
+
+[[bench]]
+name = "sketch"
+harness = false
