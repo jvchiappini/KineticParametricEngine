@@ -7,4 +7,6 @@ Thumbs.db
 *.swo
 *~
 *.kpe.json
-/node_modules/
+node_modules/
+apps/web/dist/
+apps/web/kpe-wasm/

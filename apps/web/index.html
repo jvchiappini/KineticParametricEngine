@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>KPE — Kinetic Parametric Engine</title>
+    <style>
+      * { margin: 0; padding: 0; box-sizing: border-box; }
+      html, body, #app { width: 100%; height: 100%; overflow: hidden; background: #111; }
+      #info { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); color: #fff; font: 14px/1.4 sans-serif; background: rgba(0,0,0,.7); padding: 8px 16px; border-radius: 6px; pointer-events: none; user-select: none; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <div id="info">KPE Engine — drag to orbit · scroll to zoom</div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
