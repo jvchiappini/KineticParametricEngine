@@ -74,6 +74,49 @@ pub fn sketch_snap(json: &str, x: f64, y: f64, grid: f64) -> Result<String, JsVa
 }
 
 #[wasm_bindgen]
+pub fn sketch_add_circle(json: &str, cx: f64, cy: f64, radius: f64) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    doc.add_circle(cx, cy, radius);
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_add_arc(json: &str, cx: f64, cy: f64, radius: f64, start_angle: f64, end_angle: f64) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    doc.add_arc(cx, cy, radius, start_angle, end_angle);
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_remove_entity(json: &str, id: u32) -> Result<String, JsValue> {
+    let mut doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    doc.remove_entity(id as u64);
+    serde_json::to_string(&doc)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_get_contours(json: &str) -> Result<String, JsValue> {
+    let doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    let contours = doc.get_contours();
+    serde_json::to_string(&contours)
+        .map_err(|e| JsValue::from_str(&format!("Serialize: {e}")))
+}
+
+#[wasm_bindgen]
+pub fn sketch_count_dof(json: &str) -> Result<u32, JsValue> {
+    let doc: SketchDocument = serde_json::from_str(json)
+        .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;
+    Ok(doc.count_dof())
+}
+
+#[wasm_bindgen]
 pub fn sketch_extrude(json: &str, distance: f64) -> Result<String, JsValue> {
     let doc: SketchDocument = serde_json::from_str(json)
         .map_err(|e| JsValue::from_str(&format!("Parse: {e}")))?;

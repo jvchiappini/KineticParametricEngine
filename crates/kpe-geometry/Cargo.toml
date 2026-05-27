@@ -4,6 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# Manifold C++ kernel is now the default and only CSG backend.
+# csgrs remains as a dependency (used by csgrs_backend in tests) but Manifold
+# is always active since we target desktop (Tauri), not WASM.
+default = ["manifold"]
+manifold = ["dep:manifold-csg"]
+
 [dependencies]
 kpe-schema = { path = "../kpe-schema" }
 glam.workspace = true
@@ -12,6 +19,7 @@ thiserror.workspace = true
 robust = "1.2.0"
 csgrs = "0.20.1"
 nalgebra = "0.33"
+manifold-csg = { version = "0.2.0", optional = true }
 
 [dev-dependencies]
 criterion.workspace = true

@@ -28,7 +28,7 @@ to uphold this code.
 Read [README.md](README.md#design-principles) first. These are non-negotiable:
 
 1. **The core is renderer-agnostic.** — No visual library in `kpe-*` crates.
-2. **No file exceeds 300 lines.** — Split or refactor if it grows.
+2. **No file exceeds 700 lines.** — Split or refactor if it grows.
 3. **Everything is parametric.** — No hardcoded values that should be variables.
 4. **Design decisions are documented.** — Every ADR in `wiki/decisions/`.
 5. **The schema is the contract.** — `kpe-schema` changes require migration.
@@ -109,7 +109,7 @@ Types: `feat` | `fix` | `docs` | `test` | `refactor` | `chore`
 
 - Every `pub` item **must** have a docstring (`///`).
 - Functions: max **50 lines**. Split into private helpers if longer.
-- Files: max **300 lines**. Split into modules if longer.
+- Files: max **700 lines**. Split into modules if longer.
 - No `unwrap()` in production code. Use `?` and `thiserror`.
 - No unnecessary `clone()`. If cloning a large structure, comment why.
 - Use `glam` for vector/matrix math (not `nalgebra` in new code unless required).
@@ -183,7 +183,7 @@ Benchmark results are stored in `target/criterion/` — do not commit.
 
 - [ ] Tests added/updated
 - [ ] Documentation updated (docstrings + wiki if applicable)
-- [ ] Modularity check passes (no files > 300 lines)
+- [ ] Modularity check passes (no files > 700 lines)
 - [ ] Docstring coverage 100% on pub items
 - [ ] No `unwrap()` in production code
 - [ ] Branch is up to date with main

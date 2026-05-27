@@ -10,3 +10,4 @@ Thumbs.db
 node_modules/
 apps/web/dist/
 apps/web/kpe-wasm/
+wiki/AGENTS.md

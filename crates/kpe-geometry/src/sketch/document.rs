@@ -119,6 +119,91 @@ impl SketchDocument {
         contours
     }
 
+    pub fn add_circle(&mut self, cx: f64, cy: f64, radius: f64) -> EntityId {
+        let center = self.add_point(cx, cy);
+        let id = self.alloc_id();
+        self.circles.push(Circle { id, center, radius });
+        id
+    }
+
+    pub fn add_arc(&mut self, cx: f64, cy: f64, radius: f64, start_angle: f64, end_angle: f64) -> EntityId {
+        let center = self.add_point(cx, cy);
+        let sp = self.add_point(cx + radius * start_angle.cos(), cy + radius * start_angle.sin());
+        let ep = self.add_point(cx + radius * end_angle.cos(), cy + radius * end_angle.sin());
+        let id = self.alloc_id();
+        self.arcs.push(Arc { id, center, start: sp, end: ep, radius, sweep_angle: end_angle - start_angle });
+        id
+    }
+
+    pub fn remove_entity(&mut self, id: EntityId) {
+        self.points.retain(|p| p.id != id);
+        self.lines.retain(|l| l.id != id && l.start != id && l.end != id);
+        self.arcs.retain(|a| a.id != id && a.center != id && a.start != id && a.end != id);
+        self.circles.retain(|c| c.id != id && c.center != id);
+    }
+
+    /// Returns ordered open chains then closed loops (like TS walkOrderedChains)
+    pub fn get_contours(&self) -> Vec<Vec<[f64; 2]>> {
+        use std::collections::{HashMap, HashSet};
+        let mut adj: HashMap<EntityId, Vec<EntityId>> = HashMap::new();
+        for l in &self.lines {
+            adj.entry(l.start).or_default().push(l.end);
+            adj.entry(l.end).or_default().push(l.start);
+        }
+        let mut visited = HashSet::new();
+        let mut results: Vec<Vec<[f64; 2]>> = Vec::new();
+        let pts = &self.points;
+
+        let mut walk = |start: EntityId, is_loop: bool, vis: &mut HashSet<EntityId>, res: &mut Vec<Vec<[f64; 2]>>| {
+            if vis.contains(&start) { return; }
+            let mut ordered: Vec<EntityId> = Vec::new();
+            let mut cur = Some(start);
+            let mut prev: Option<EntityId> = None;
+            while let Some(c) = cur {
+                if vis.contains(&c) { break; }
+                vis.insert(c);
+                ordered.push(c);
+                let nbs = adj.get(&c).map(|v| v.as_slice()).unwrap_or(&[]);
+                let next = nbs.iter().copied().filter(|n| Some(*n) != prev).next();
+                if next.is_none() { break; }
+                prev = Some(c);
+                cur = next;
+                if is_loop && cur == Some(start) { break; }
+            }
+            let out: Vec<[f64; 2]> = ordered.iter().filter_map(|id| pts.iter().find(|p| p.id == *id).map(|p| [p.x, p.y])).collect();
+            if out.len() >= 2 { res.push(out); }
+        };
+
+        for (&pid, nbs) in &adj { if nbs.len() == 1 { walk(pid, false, &mut visited, &mut results); } }
+        for (&pid, _) in &adj { if !visited.contains(&pid) { walk(pid, true, &mut visited, &mut results); } }
+        results
+    }
+
+    /// Count degrees of freedom: free points × 2 + circles × 1 + arcs × 3 − constraints
+    pub fn count_dof(&self) -> u32 {
+        let mut dof = 0u32;
+        for p in &self.points {
+            let is_fixed = self.constraints.iter().any(|c| matches!(c, Constraint::Fix { point, .. } if *point == p.id));
+            if !is_fixed { dof += 2; }
+        }
+        for _c in &self.circles { dof += 1; }
+        for _a in &self.arcs { dof += 3; }
+        for c in &self.constraints {
+            dof -= match c {
+                Constraint::Coincident { .. } => 2,
+                Constraint::Horizontal { .. } | Constraint::Vertical { .. }
+                | Constraint::Parallel { .. } | Constraint::Perpendicular { .. }
+                | Constraint::EqualLength { .. } | Constraint::Tangent { .. }
+                | Constraint::Distance { .. } | Constraint::Angle { .. }
+                | Constraint::Collinear { .. } => 1,
+                Constraint::Fix { .. } => 0,
+                Constraint::Midpoint { .. } => 1,
+                Constraint::Radius { .. } => 1,
+            };
+        }
+        dof.max(0)
+    }
+
     pub fn extrude_contours(&self, distance: f64) -> (Vec<[f64; 3]>, Vec<[u32; 3]>) {
         let mut all_verts = Vec::new();
         let mut all_tris = Vec::new();

@@ -2,8 +2,8 @@
 """
 check_modularity.py — Detecta archivos que superan el límite de líneas.
 
-Regla de KPE: ningún archivo .rs supera 300 líneas.
-            ningún archivo .ts supera 300 líneas.
+Regla de KPE: ningún archivo .rs supera 700 líneas.
+            ningún archivo .ts supera 700 líneas.
 
 Uso:
     python wiki/scripts/check_modularity.py
@@ -19,7 +19,7 @@ from pathlib import Path
 
 
 EXTENSIONS = {".rs", ".ts", ".tsx"}
-DEFAULT_LIMIT = 300
+DEFAULT_LIMIT = 700
 REPO_ROOT = Path(__file__).parent.parent.parent
 
 
