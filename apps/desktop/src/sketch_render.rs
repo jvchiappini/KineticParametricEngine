@@ -6,6 +6,7 @@ use kpe_schema::geometry::*;
 use kpe_geometry::sketch::tessellate_sketch;
 use kpe_geometry::sketch::constraints::Constraint;
 use kpe_geometry::sketch::document::SketchDocument;
+use kpe_geometry::sketch::entities::{EntityId, Point};
 
 pub fn render_sketch_wireframes(
     mut gizmos: Gizmos,
@@ -78,11 +79,14 @@ pub fn render_sketch(
 
     for p in &editor.document.points {
         let pos = to_3d(p.x, p.y, plane);
-        let color = if editor.drag_from == Some(p.id) {
-            Color::srgb(1.0, 1.0, 0.0)
-        } else {
-            Color::srgb(0.2, 0.8, 1.0)
-        };
+        let color = entity_dof_color(
+            &[p.id],
+            &editor.document.points,
+            &editor.dof_status,
+            editor.drag_from == Some(p.id),
+            Color::srgb(1.0, 1.0, 0.0),
+            Color::srgb(0.2, 0.8, 1.0),
+        );
         gizmos.sphere(pos, 0.05, color);
     }
 
@@ -93,11 +97,14 @@ pub fn render_sketch(
         ) {
             let a = to_3d(s.x, s.y, plane);
             let b = to_3d(e.x, e.y, plane);
-            let color = if editor.selected_entities.contains(&l.id) || Some(l.id) == editor.selected_entity {
-                Color::srgb(1.0, 0.8, 0.0)
-            } else {
-                Color::srgb(0.0, 0.8, 1.0)
-            };
+            let color = entity_dof_color(
+                &[s.id, e.id],
+                &editor.document.points,
+                &editor.dof_status,
+                editor.selected_entities.contains(&l.id) || Some(l.id) == editor.selected_entity,
+                Color::srgb(1.0, 0.8, 0.0),
+                Color::srgb(0.0, 0.8, 1.0),
+            );
             gizmos.line(a, b, color);
         }
     }
@@ -105,11 +112,14 @@ pub fn render_sketch(
     for c in &editor.document.circles {
         if let Some(center) = editor.document.points.iter().find(|p| p.id == c.center) {
             let pos = to_3d(center.x, center.y, plane);
-            let color = if editor.selected_entities.contains(&c.id) || Some(c.id) == editor.selected_entity {
-                Color::srgb(1.0, 0.8, 0.0)
-            } else {
-                Color::srgb(0.0, 0.8, 1.0)
-            };
+            let color = entity_dof_color(
+                &[center.id],
+                &editor.document.points,
+                &editor.dof_status,
+                editor.selected_entities.contains(&c.id) || Some(c.id) == editor.selected_entity,
+                Color::srgb(1.0, 0.8, 0.0),
+                Color::srgb(0.0, 0.8, 1.0),
+            );
             draw_circle_lines(&mut gizmos, pos, right, forward, c.radius as f32, color);
         }
     }
@@ -117,11 +127,14 @@ pub fn render_sketch(
     for a in &editor.document.arcs {
         if let Some(center) = editor.document.points.iter().find(|p| p.id == a.center) {
             let pos = to_3d(center.x, center.y, plane);
-            let color = if editor.selected_entities.contains(&a.id) || Some(a.id) == editor.selected_entity {
-                Color::srgb(1.0, 0.8, 0.0)
-            } else {
-                Color::srgb(0.2, 1.0, 0.2)
-            };
+            let color = entity_dof_color(
+                &[center.id],
+                &editor.document.points,
+                &editor.dof_status,
+                editor.selected_entities.contains(&a.id) || Some(a.id) == editor.selected_entity,
+                Color::srgb(1.0, 0.8, 0.0),
+                Color::srgb(0.2, 1.0, 0.2),
+            );
             let segs = 16;
             let radius = a.radius as f32;
             for i in 0..segs {
@@ -185,6 +198,36 @@ fn draw_circle_lines(gizmos: &mut Gizmos, center: Vec3, right: Vec3, forward: Ve
         let p0 = center + right * a0.cos() * radius + forward * a0.sin() * radius;
         let p1 = center + right * a1.cos() * radius + forward * a1.sin() * radius;
         gizmos.line(p0, p1, color);
+    }
+}
+
+/// Check whether all points referenced by an entity are fully constrained.
+/// Returns `None` when DoF data is unavailable (e.g. empty / stale).
+fn entity_dof_color(
+    point_ids: &[EntityId],
+    points: &[Point],
+    dof_status: &[(bool, bool)],
+    selected: bool,
+    selected_color: Color,
+    default_color: Color,
+) -> Color {
+    if selected {
+        return selected_color;
+    }
+    if dof_status.len() != points.len() {
+        return default_color;
+    }
+    let all_fully = point_ids.iter().all(|id| {
+        points
+            .iter()
+            .position(|p| p.id == *id)
+            .and_then(|i| dof_status.get(i))
+            .map_or(false, |&(x, y)| x && y)
+    });
+    if all_fully {
+        Color::BLACK
+    } else {
+        default_color
     }
 }
 
@@ -293,19 +336,4 @@ pub fn constraint_marker_pos(c: &Constraint, doc: &SketchDocument) -> (f64, f64)
     }
 }
 
-pub fn describe_short(c: &Constraint) -> String {
-    match *c {
-        Constraint::Distance { distance, .. } => format!("Distance ({:.2})", distance),
-        Constraint::Angle { angle, .. } => format!("Angle ({:.2}°)", angle),
-        Constraint::Radius { radius, .. } => format!("Radius ({:.2})", radius),
-        Constraint::Horizontal { .. } => "Horizontal".into(),
-        Constraint::Vertical { .. } => "Vertical".into(),
-        Constraint::EqualLength { .. } => "Equal Length".into(),
-        Constraint::Parallel { .. } => "Parallel".into(),
-        Constraint::Perpendicular { .. } => "Perpendicular".into(),
-        Constraint::Collinear { .. } => "Collinear".into(),
-        Constraint::Coincident { .. } => "Coincident".into(),
-        Constraint::Fix { .. } => "Fix".into(),
-        _ => "Constraint".into(),
-    }
-}
+

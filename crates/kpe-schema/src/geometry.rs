@@ -70,6 +70,7 @@ pub struct MeshDef {
 pub struct SketchDef {
     pub primitives: Vec<SketchPrimitive>,
     pub plane: SketchPlane,
+    pub extrude: Option<ExtrudeDef>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -241,18 +241,20 @@ fn tree_node(ui: &mut egui::Ui, node: &GeometryNode, selection: &mut Option<Stri
     let is_hidden = hidden_nodes.contains(&node.id);
     let label = format!("{} ({})", node.id, node_type_name(&node.node_type));
 
-    let eye_label = if is_hidden { "[ ]" } else { "[v]" };
-    let eye_response = ui.selectable_label(false, eye_label);
-    if eye_response.clicked() {
-        if is_hidden {
-            hidden_nodes.remove(&node.id);
-        } else {
-            hidden_nodes.insert(node.id.clone());
+    let response = ui.horizontal(|ui| {
+        let eye_label = if is_hidden { "\u{25CB}" } else { "\u{25CF}" };
+        let eye_response = ui.selectable_label(false, eye_label);
+        if eye_response.clicked() {
+            if is_hidden {
+                hidden_nodes.remove(&node.id);
+            } else {
+                hidden_nodes.insert(node.id.clone());
+            }
         }
-    }
-    eye_response.on_hover_text(if is_hidden { "Show node" } else { "Hide node" });
+        eye_response.on_hover_text(if is_hidden { "Show node" } else { "Hide node" });
 
-    let response = ui.selectable_label(is_selected, &label);
+        ui.selectable_label(is_selected, &label)
+    }).inner;
     if response.clicked() {
         let ctrl = ui.input(|i| i.modifiers.ctrl);
         if ctrl {

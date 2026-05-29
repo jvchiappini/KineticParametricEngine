@@ -4,13 +4,14 @@ pub mod solver;
 pub mod inference;
 pub mod boolean;
 pub mod document;
+pub mod spatial;
 
 use kpe_schema::geometry::{Sketch2D, SketchDef, SketchPrimitive};
 use glam::DVec2;
 
 pub use entities::*;
 pub use constraints::Constraint;
-pub use solver::Solver;
+pub use solver::{Solver, analyze_dof};
 pub use inference::{InferenceEngine, SnapResult};
 pub use boolean::{boolean_contours, BooleanOp, extrude_contour_to_3d};
 pub use document::SketchDocument;

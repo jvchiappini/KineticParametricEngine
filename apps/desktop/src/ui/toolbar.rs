@@ -12,14 +12,14 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
 
                 if ui.button("New").on_hover_text("Create a new empty document").clicked() {
                     state.document = crate::document::Document::new();
-                    state.history = crate::commands::CommandHistory::new();
+                    state.history = kpe_parametric::CommandHistory::new();
                     state.mark_dirty();
                 }
 
                 if ui.button("Open").on_hover_text("Open a .kpe file (Ctrl+O)").clicked() {
                     if let Some(doc) = crate::io::open_document() {
                         state.document = doc;
-                        state.history = crate::commands::CommandHistory::new();
+                        state.history = kpe_parametric::CommandHistory::new();
                         state.mark_dirty();
                     }
                 }

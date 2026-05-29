@@ -3,7 +3,7 @@ use bevy_egui::egui::color_picker;
 use crate::app::AppState;
 use crate::commands::{SetParameterCommand, SetJointValueCommand};
 use kpe_schema::geometry::{
-    BoxDef, CylinderDef, ExtrudeDef, RevolveDef, GeometryNode, GeometryNodeType, SphereDef, TransformOp,
+    BoxDef, CylinderDef, ExtrudeDef, RevolveDef, GeometryNode, GeometryNodeType, SketchDef, SphereDef, TransformOp,
 };
 
 pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
@@ -65,6 +65,7 @@ fn show_all_properties(ui: &mut egui::Ui, node: &GeometryNode, node_id: &str, st
         GeometryNodeType::Box(b) => show_box_properties(ui, b.clone(), node_id, state),
         GeometryNodeType::Cylinder(c) => show_cylinder_properties(ui, c.clone(), node_id, state),
         GeometryNodeType::Sphere(s) => show_sphere_properties(ui, s.clone(), node_id, state),
+        GeometryNodeType::Sketch(s) => show_sketch_properties(ui, s.clone(), node_id, state),
         GeometryNodeType::Extrude(e) => show_extrude_properties(ui, e.clone(), node_id, state),
         GeometryNodeType::Revolve(r) => show_revolve_properties(ui, r.clone(), node_id, state),
         GeometryNodeType::Fillet(f) => { ui.label(format!("Radius: {:.2}", f.radius)); }
@@ -188,6 +189,56 @@ fn show_sphere_properties(ui: &mut egui::Ui, mut def: SphereDef, node_id: &str, 
     }
 }
 
+fn show_sketch_properties(ui: &mut egui::Ui, def: SketchDef, node_id: &str, state: &mut AppState) {
+    ui.label(format!("Plane: {:?}", def.plane));
+    ui.label(format!("Primitives: {}", def.primitives.len()));
+    ui.separator();
+    ui.label("Extrude");
+    let mut has_extrude = def.extrude.is_some();
+    if ui.checkbox(&mut has_extrude, "Enabled").changed() {
+        let mut new_def = def.clone();
+        if has_extrude {
+            new_def.extrude = Some(ExtrudeDef {
+                sketch_id: node_id.to_string(),
+                distance: 2.0,
+                direction: None,
+                cap: true,
+                taper_angle: None,
+            });
+        } else {
+            new_def.extrude = None;
+        }
+        update_sketch_extrude(state, node_id, new_def);
+    }
+    if let Some(ref ext) = def.extrude {
+        let mut dist = ext.distance;
+        let mut taper = ext.taper_angle.unwrap_or(0.0);
+        let d_changed = float_drag_mut(ui, "Distance", &mut dist, 0.1..=1000.0);
+        let t_changed = float_drag_mut(ui, "Taper °", &mut taper, -60.0..=60.0);
+        if d_changed || t_changed {
+            let mut new_def = def.clone();
+            if let Some(ref mut e) = new_def.extrude {
+                e.distance = dist;
+                e.taper_angle = if taper == 0.0 { None } else { Some(taper) };
+            }
+            update_sketch_extrude(state, node_id, new_def);
+        }
+    }
+}
+
+fn update_sketch_extrude(state: &mut AppState, node_id: &str, new_def: SketchDef) {
+    use crate::commands::SetSketchCommand;
+    let cmd = SetSketchCommand {
+        node_id: node_id.to_string(),
+        old_sketch: None,
+        new_sketch: new_def,
+    };
+    let mut doc = std::mem::take(&mut state.document);
+    state.history.execute(Box::new(cmd), &mut doc);
+    state.document = doc;
+    state.mark_dirty();
+}
+
 fn show_extrude_properties(ui: &mut egui::Ui, mut def: ExtrudeDef, node_id: &str, state: &mut AppState) {
     ui.label("Extrude");
     let mut taper = def.taper_angle.unwrap_or(0.0);
@@ -294,6 +345,21 @@ fn update_node_type_rec(node: &mut GeometryNode, target: &str, new_type: Geometr
     for child in &mut node.children {
         update_node_type_rec(child, target, new_type.clone());
     }
+}
+
+fn float_drag_mut(ui: &mut egui::Ui, label: &str, value: &mut f64, range: std::ops::RangeInclusive<f64>) -> bool {
+    let old = *value;
+    let mut display = old as f32;
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.add(
+            egui::DragValue::new(&mut display)
+                .speed(0.1)
+                .range(*range.start() as f32..=*range.end() as f32),
+        );
+    });
+    *value = display as f64;
+    (*value - old).abs() > 1e-9
 }
 
 fn float_drag(

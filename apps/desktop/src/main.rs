@@ -5,6 +5,7 @@ mod document;
 mod feature_commands;
 mod gizmos;
 mod io;
+mod plugins;
 mod sketch_editor;
 mod sketch_render;
 mod sync;
@@ -18,9 +19,7 @@ use bevy::{
     render::view::Msaa,
 };
 
-
 use bevy_egui::EguiPlugin;
-use std::time::Duration;
 
 fn main() {
     App::new()
@@ -32,87 +31,19 @@ fn main() {
             ..default()
         }))
         .add_plugins(EguiPlugin)
+        .add_plugins(plugins::DocumentPlugin)
+        .add_plugins(plugins::GizmoPlugin)
+        .add_plugins(plugins::UiPlugin)
+        .add_plugins(plugins::SketchEditorPlugin)
         .insert_resource(AmbientLight {
             color: Color::WHITE,
             brightness: 200.0,
         })
-        .insert_resource(app::AppState::new())
-        .insert_resource(sync::MeshCache::default())
-        .insert_resource(gizmos::GizmoState::default())
-        .insert_resource(sketch_editor::SketchEditorState::new())
-        .insert_resource(AutoSaveTimer(Timer::new(Duration::from_secs(120), TimerMode::Repeating)))
         .add_systems(Startup, setup)
-        .add_systems(Startup, sync::setup_scene)
-        .add_systems(Update, app::ui_system)
-        .add_systems(Update, sync::sync_meshes)
         .add_systems(Update, camera::orbit_camera_system)
         .add_systems(Update, view_preset_handler)
-        .add_systems(Update, keyboard_shortcuts)
         .add_systems(Update, viewport_selection)
-        .add_systems(Update, auto_save_system)
-        .add_systems(Update, update_window_title)
-        .add_systems(Update, viewport_grid)
-        .add_systems(Update, axis_indicator)
-        .add_systems(Update, gizmos::gizmo_interaction_system)
-        .add_systems(Update, gizmos::gizmo_render_system)
-        .add_systems(Update, sketch_editor::check_enter_sketch_mode)
-        .add_systems(Update, sketch_editor::sketch_input)
-        .add_systems(Update, sketch_editor::render_sketch)
-        .add_systems(Update, sketch_editor::render_sketch_wireframes)
-        .add_systems(Update, sketch_editor::sketch_ui)
         .run();
-}
-
-pub fn keyboard_shortcuts(
-    keys: Res<ButtonInput<KeyCode>>,
-    mut state: ResMut<app::AppState>,
-    editor: Res<sketch_editor::SketchEditorState>,
-) {
-    if editor.active { return; }
-
-    let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
-
-    if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
-        commands::delete_selected_nodes(&mut *state);
-        return;
-    }
-
-    if !ctrl { return; }
-
-    if keys.just_pressed(KeyCode::KeyZ) && !keys.pressed(KeyCode::ShiftLeft) && !keys.pressed(KeyCode::ShiftRight) {
-        if let Some(mut cmd) = state.history.undo_stack.pop() {
-            cmd.undo(&mut state.document);
-            state.history.redo_stack.push(cmd);
-            state.mark_dirty();
-        }
-    } else if keys.just_pressed(KeyCode::KeyZ) {
-        if let Some(mut cmd) = state.history.redo_stack.pop() {
-            cmd.execute(&mut state.document);
-            state.history.undo_stack.push(cmd);
-            state.mark_dirty();
-        }
-    } else if keys.just_pressed(KeyCode::KeyY) {
-        if let Some(mut cmd) = state.history.redo_stack.pop() {
-            cmd.execute(&mut state.document);
-            state.history.undo_stack.push(cmd);
-            state.mark_dirty();
-        }
-    } else if keys.just_pressed(KeyCode::KeyC) {
-        commands::copy_selected(&mut *state);
-    } else if keys.just_pressed(KeyCode::KeyX) {
-        commands::cut_selected(&mut *state);
-    } else if keys.just_pressed(KeyCode::KeyV) {
-        commands::paste_clipboard(&mut *state);
-    } else if keys.just_pressed(KeyCode::KeyA) {
-        let mut all_ids = Vec::new();
-        commands::collect_ids(&state.document.recipe.scene, &mut all_ids);
-        state.document.multi_selection = all_ids;
-        state.document.selection = None;
-    } else if keys.just_pressed(KeyCode::KeyD) {
-        commands::duplicate_selected(&mut *state);
-    } else if keys.just_pressed(KeyCode::KeyS) {
-        let _ = crate::io::save_dialog(&state.document);
-    }
 }
 
 fn setup(mut commands: Commands) {
@@ -211,31 +142,6 @@ fn viewport_selection(
     }
 }
 
-// ── Auto-save ──────────────────────────────────
-
-#[derive(Resource)]
-struct AutoSaveTimer(Timer);
-
-fn auto_save_system(
-    time: Res<Time>,
-    mut timer: ResMut<AutoSaveTimer>,
-    state: Res<app::AppState>,
-) {
-    if timer.0.tick(time.delta()).just_finished() {
-        let path = dirs_data_local().join("kpe_autosave.kpe");
-        if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).ok();
-        }
-        let json = serde_json::to_string(&state.document.recipe).unwrap_or_default();
-        std::fs::write(&path, &json).ok();
-    }
-}
-
-fn dirs_data_local() -> std::path::PathBuf {
-    std::path::PathBuf::from(std::env::var("APPDATA").unwrap_or_else(|_| ".kpe".to_string()))
-        .join("KPE")
-}
-
 // ── View preset handler ──────────────────────
 
 fn view_preset_handler(
@@ -251,56 +157,4 @@ fn view_preset_handler(
         4 => { cam.target = Vec3::ZERO; cam.distance = 10.0; cam.yaw = 0.4; cam.pitch = 0.4; }
         _ => {}
     }
-}
-
-// ── 3D viewport grid ──────────────────────────
-
-pub fn viewport_grid(
-    mut gizmos: Gizmos,
-    editor: Res<sketch_editor::SketchEditorState>,
-) {
-    if editor.active { return; }
-    let size = 10.0;
-    let step = 1.0;
-    let half = size / 2.0;
-    let steps = (size / step) as i32;
-    let dark = Color::srgb(0.2, 0.2, 0.2);
-    let light = Color::srgb(0.35, 0.35, 0.35);
-    for i in -steps..=steps {
-        let v = i as f32 * step;
-        let color = if i == 0 { light } else { dark };
-        gizmos.line(Vec3::new(v, 0.0, -half), Vec3::new(v, 0.0, half), color);
-        gizmos.line(Vec3::new(-half, 0.0, v), Vec3::new(half, 0.0, v), color);
-    }
-}
-
-// ── Axis indicator ────────────────────────────
-
-pub fn axis_indicator(
-    mut gizmos: Gizmos,
-    editor: Res<sketch_editor::SketchEditorState>,
-) {
-    if editor.active { return; }
-    let len = 1.5;
-    gizmos.line(Vec3::ZERO, Vec3::new(len, 0.0, 0.0), Color::srgb(1.0, 0.0, 0.0));
-    gizmos.line(Vec3::ZERO, Vec3::new(0.0, len, 0.0), Color::srgb(0.0, 1.0, 0.0));
-    gizmos.line(Vec3::ZERO, Vec3::new(0.0, 0.0, len), Color::srgb(0.0, 0.0, 1.0));
-    gizmos.sphere(Vec3::new(len, 0.0, 0.0), 0.06, Color::srgb(1.0, 0.0, 0.0));
-    gizmos.sphere(Vec3::new(0.0, len, 0.0), 0.06, Color::srgb(0.0, 1.0, 0.0));
-    gizmos.sphere(Vec3::new(0.0, 0.0, len), 0.06, Color::srgb(0.0, 0.0, 1.0));
-}
-
-// ── Window title ──────────────────────────────
-
-fn update_window_title(
-    state: Res<app::AppState>,
-    mut windows: Query<&mut Window>,
-) {
-    let Ok(mut window) = windows.get_single_mut() else { return };
-    let name = state.document.file_path.as_deref()
-        .and_then(|p| std::path::Path::new(p).file_name())
-        .and_then(|n| n.to_str())
-        .unwrap_or("Untitled");
-    let modified = if state.document.is_modified { "*" } else { "" };
-    window.title = format!("KPE Desktop - {}{}", name, modified);
 }

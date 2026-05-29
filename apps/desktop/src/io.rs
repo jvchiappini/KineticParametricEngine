@@ -1,6 +1,5 @@
 use std::path::PathBuf;
 use rfd::FileDialog;
-use crate::commands::Command;
 use crate::document::Document;
 
 pub fn save_dialog(_doc: &Document) -> Option<PathBuf> {
@@ -289,19 +288,4 @@ pub fn open_document() -> Option<Document> {
     load_from_file(&path).ok()
 }
 
-pub struct SaveCommand;
 
-impl Command for SaveCommand {
-    fn execute(&mut self, doc: &mut Document) {
-        let path = save_dialog(doc);
-        if let Some(p) = path {
-            let _ = save_to_file(&p, doc);
-        }
-    }
-
-    fn undo(&mut self, _doc: &mut Document) {}
-
-    fn description(&self) -> &str {
-        "Save Document"
-    }
-}

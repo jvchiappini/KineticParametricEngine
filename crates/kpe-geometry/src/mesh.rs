@@ -47,21 +47,25 @@ impl MeshBuilder {
                 triangles: mesh_def.indices.clone(),
             },
             GeometryNodeType::Sketch(sketch_def) => {
-                let contours = crate::sketch::tessellate_sketch(sketch_def);
-                let mut verts = Vec::new();
-                let mut tris = Vec::new();
-                for c in &contours {
-                    if c.len() < 3 { continue; }
-                    let base = verts.len() as u32;
-                    for p in c {
-                        verts.push([p.x, p.y, 0.0]);
+                if let Some(extrude_def) = &sketch_def.extrude {
+                    extrude_sketch(sketch_def, extrude_def)
+                } else {
+                    let contours = crate::sketch::tessellate_sketch(sketch_def);
+                    let mut verts = Vec::new();
+                    let mut tris = Vec::new();
+                    for c in &contours {
+                        if c.len() < 3 { continue; }
+                        let base = verts.len() as u32;
+                        for p in c {
+                            verts.push([p.x, p.y, 0.0]);
+                        }
+                        let tri_indices = crate::sketch::triangulate_contour(c);
+                        for t in &tri_indices {
+                            tris.push([t[0] + base, t[1] + base, t[2] + base]);
+                        }
                     }
-                    let tri_indices = crate::sketch::triangulate_contour(c);
-                    for t in &tri_indices {
-                        tris.push([t[0] + base, t[1] + base, t[2] + base]);
-                    }
+                    TriangleMesh { vertices: verts, normals: vec![], uvs: vec![], triangles: tris }
                 }
-                TriangleMesh { vertices: verts, normals: vec![], uvs: vec![], triangles: tris }
             }
             GeometryNodeType::Extrude(extrude_def) => {
                 let sketch = match self.sketches.get(&extrude_def.sketch_id) {
@@ -163,21 +167,25 @@ impl MeshBuilder {
                 triangles: mesh_def.indices.clone(),
             },
             GeometryNodeType::Sketch(sketch_def) => {
-                let contours = crate::sketch::tessellate_sketch(sketch_def);
-                let mut verts = Vec::new();
-                let mut tris = Vec::new();
-                for c in &contours {
-                    if c.len() < 3 { continue; }
-                    let base = verts.len() as u32;
-                    for p in c {
-                        verts.push([p.x, p.y, 0.0]);
+                if let Some(extrude_def) = &sketch_def.extrude {
+                    extrude_sketch(sketch_def, extrude_def)
+                } else {
+                    let contours = crate::sketch::tessellate_sketch(sketch_def);
+                    let mut verts = Vec::new();
+                    let mut tris = Vec::new();
+                    for c in &contours {
+                        if c.len() < 3 { continue; }
+                        let base = verts.len() as u32;
+                        for p in c {
+                            verts.push([p.x, p.y, 0.0]);
+                        }
+                        let tri_indices = crate::sketch::triangulate_contour(c);
+                        for t in &tri_indices {
+                            tris.push([t[0] + base, t[1] + base, t[2] + base]);
+                        }
                     }
-                    let tri_indices = crate::sketch::triangulate_contour(c);
-                    for t in &tri_indices {
-                        tris.push([t[0] + base, t[1] + base, t[2] + base]);
-                    }
+                    TriangleMesh { vertices: verts, normals: vec![], uvs: vec![], triangles: tris }
                 }
-                TriangleMesh { vertices: verts, normals: vec![], uvs: vec![], triangles: tris }
             }
             GeometryNodeType::Extrude(extrude_def) => {
                 let sketch = match self.sketches.get(&extrude_def.sketch_id) {

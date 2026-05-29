@@ -1,9 +1,10 @@
-use crate::commands::{CommandHistory, ArrayParams};
 use crate::document::Document;
 use crate::ui;
 use crate::sketch_editor::SketchEditorState;
 use bevy::prelude::*;
 use bevy_egui::{egui, EguiContexts};
+use kpe_parametric::CommandHistory;
+use kpe_parametric::commands::features::ArrayParams;
 use kpe_schema::geometry::GeometryNode;
 use kpe_schema::joint::JointType;
 
@@ -30,12 +31,53 @@ pub struct AppState {
 impl AppState {
     pub fn new() -> Self {
         let doc = Document::new();
-        Self { document: doc, history: CommandHistory::new(), mesh_gen: 1, pending_sketch_edit: None, clipboard: None, show_array_dialog: false, show_mirror_dialog: false, show_fillet_dialog: false, show_chamfer_dialog: false, show_joint_dialog: false, show_about_dialog: false, new_joint_type: JointType::Revolute, new_joint_pivot: [0.0; 3], new_joint_axis: [0.0, 1.0, 0.0], array_params: ArrayParams::default(), pending_view_preset: None }
+        Self {
+            document: doc,
+            history: CommandHistory::new(),
+            mesh_gen: 1,
+            pending_sketch_edit: None,
+            clipboard: None,
+            show_array_dialog: false,
+            show_mirror_dialog: false,
+            show_fillet_dialog: false,
+            show_chamfer_dialog: false,
+            show_joint_dialog: false,
+            show_about_dialog: false,
+            new_joint_type: JointType::Revolute,
+            new_joint_pivot: [0.0; 3],
+            new_joint_axis: [0.0, 1.0, 0.0],
+            array_params: ArrayParams::default(),
+            pending_view_preset: None,
+        }
     }
 
     pub fn mark_dirty(&mut self) {
         self.mesh_gen += 1;
         self.document.is_modified = true;
+    }
+
+    /// Undo the last command, updating both scene and geometry.
+    pub fn undo(&mut self) {
+        let mut gs = self.document.to_scene();
+        self.history.undo(&mut gs);
+        self.document.apply_scene(gs);
+        self.mark_dirty();
+    }
+
+    /// Redo the last undone command.
+    pub fn redo(&mut self) {
+        let mut gs = self.document.to_scene();
+        self.history.redo(&mut gs);
+        self.document.apply_scene(gs);
+        self.mark_dirty();
+    }
+
+    /// Execute a parametric command, updating both scene and geometry.
+    pub fn execute(&mut self, cmd: Box<dyn kpe_parametric::Command>) {
+        let mut gs = self.document.to_scene();
+        self.history.execute(cmd, &mut gs);
+        self.document.apply_scene(gs);
+        self.mark_dirty();
     }
 }
 
