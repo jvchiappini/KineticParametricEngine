@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use bevy_egui::{egui, EguiContexts};
 use crate::app::AppState;
-use crate::commands;
+use crate::{commands, feature_commands};
 use kpe_schema::joint::JointType;
 use kpe_schema::geometry::{GeometryNode, GeometryNodeType};
 
@@ -50,10 +50,10 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                     commands::paste_clipboard(state);
                 }
                 if ui.add_enabled(can_copy, egui::Button::new("Dup  Ctrl+D")).on_hover_text("Duplicate selected node").clicked() {
-                    commands::duplicate_selected(state);
+                    feature_commands::duplicate_selected(state);
                 }
                 if ui.add_enabled(can_copy && state.document.selection.as_deref() != Some("Root"), egui::Button::new("Delete  Del")).on_hover_text("Delete selected node(s)").clicked() {
-                    commands::delete_selected_nodes(state);
+                    feature_commands::delete_selected_nodes(state);
                 }
             });
             ui.horizontal(|ui| {
@@ -72,23 +72,23 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 }
             });
             ui.horizontal(|ui| {
-                if ui.button("+Box").on_hover_text("Add a box primitive").clicked() { commands::add_box(state); }
-                if ui.button("+Cyl").on_hover_text("Add a cylinder primitive").clicked() { commands::add_cylinder(state); }
-                if ui.button("+Sph").on_hover_text("Add a sphere primitive").clicked() { commands::add_sphere(state); }
-                if ui.button("+Sketch").on_hover_text("Add a 2D sketch").clicked() { commands::add_sketch(state); }
+                if ui.button("+Box").on_hover_text("Add a box primitive").clicked() { feature_commands::add_box(state); }
+                if ui.button("+Cyl").on_hover_text("Add a cylinder primitive").clicked() { feature_commands::add_cylinder(state); }
+                if ui.button("+Sph").on_hover_text("Add a sphere primitive").clicked() { feature_commands::add_sphere(state); }
+                if ui.button("+Sketch").on_hover_text("Add a 2D sketch").clicked() { feature_commands::add_sketch(state); }
             });
             ui.horizontal(|ui| {
                 let can_copy = state.document.selection.is_some();
                 if ui.add_enabled(can_copy, egui::Button::new("Group")).on_hover_text("Group selection into a compound node").clicked() {
                     let sel = state.document.selection.clone();
                     if let Some(ref id) = sel {
-                        commands::add_group(state, id);
+                        feature_commands::add_group(state, id);
                     }
                 }
                 if ui.add_enabled(can_copy, egui::Button::new("Assembly")).on_hover_text("Wrap selection in an assembly node").clicked() {
                     let sel = state.document.selection.clone();
                     if let Some(ref id) = sel {
-                        commands::add_assembly(state, id);
+                        feature_commands::add_assembly(state, id);
                     }
                 }
                 if ui.add_enabled(can_copy, egui::Button::new("Joint...")).on_hover_text("Create a joint between two nodes").clicked() {
@@ -120,7 +120,7 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 ui.horizontal(|ui| { ui.label("SZ:"); ui.add(egui::DragValue::new(&mut state.array_params.sz).speed(0.01).range(0.01..=100.0)); });
                 ui.separator();
                 if ui.button("Create").clicked() {
-                    commands::array_selected(state, &params_clone);
+                    feature_commands::array_selected(state, &params_clone);
                     state.show_array_dialog = false;
                 }
                 if ui.button("Cancel").clicked() {
@@ -146,7 +146,7 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 });
                 ui.separator();
                 if ui.button("Create Mirror").clicked() {
-                    commands::mirror_selected(state, &plane);
+                    feature_commands::mirror_selected(state, &plane);
                     state.show_mirror_dialog = false;
                 }
                 if ui.button("Cancel").clicked() {
@@ -163,7 +163,7 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 ui.horizontal(|ui| { ui.label("Radius:"); ui.add(egui::DragValue::new(&mut radius).speed(0.01).range(0.001..=100.0)); });
                 ui.separator();
                 if ui.button("Apply Fillet").clicked() {
-                    commands::add_fillet(state, radius);
+                    feature_commands::add_fillet(state, radius);
                     state.show_fillet_dialog = false;
                 }
                 if ui.button("Cancel").clicked() {
@@ -180,7 +180,7 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 ui.horizontal(|ui| { ui.label("Distance:"); ui.add(egui::DragValue::new(&mut distance).speed(0.01).range(0.001..=100.0)); });
                 ui.separator();
                 if ui.button("Apply Chamfer").clicked() {
-                    commands::add_chamfer(state, distance);
+                    feature_commands::add_chamfer(state, distance);
                     state.show_chamfer_dialog = false;
                 }
                 if ui.button("Cancel").clicked() {
@@ -217,7 +217,7 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 });
                 ui.separator();
                 if ui.button("Create Joint").clicked() {
-                    commands::add_joint(state, &sel);
+                    feature_commands::add_joint(state, &sel);
                     state.show_joint_dialog = false;
                 }
                 if ui.button("Cancel").clicked() {

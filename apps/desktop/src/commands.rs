@@ -4,20 +4,7 @@
 //! and keeps clipboard operations that reference `AppState`.
 
 pub use kpe_parametric::{
-    CommandHistory,
-    SetParameterCommand,
-    AddFeatureCommand,
-    DeleteFeatureCommand,
-    SetSketchCommand,
-    AddJointCommand,
-    SetJointValueCommand,
     find_node,
-    find_parent,
-    find_parent_mut,
-    collect_ids,
-    reassign_ids,
-    add_child,
-    remove_child,
 };
 
 use kpe_parametric::commands::{
@@ -25,7 +12,7 @@ use kpe_parametric::commands::{
     collect_ids as kpe_collect_ids, reassign_ids as kpe_reassign_ids,
     AddFeatureCommand, DeleteFeatureCommand,
 };
-use kpe_schema::geometry::GeometryNode;
+use kpe_parametric::Command;
 
 /// Copy the selected node to the clipboard.
 pub fn copy_selected(state: &mut crate::app::AppState) {
@@ -57,7 +44,7 @@ pub fn cut_selected(state: &mut crate::app::AppState) {
         node: cloned.clone(),
     };
     let mut gs = state.document.to_scene();
-    cmd.execute(&mut gs);
+    Command::execute(&mut cmd, &mut gs);
     state.document.apply_scene(gs);
     state.history.undo_stack.push(Box::new(cmd));
     state.clipboard = Some(cloned);

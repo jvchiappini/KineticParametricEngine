@@ -1,6 +1,7 @@
 use bevy::prelude::*;
 use bevy::tasks::Task;
-use crate::{app::AppState, commands::SetSketchCommand, sketch_editor};
+use crate::{app::AppState, sketch_editor};
+use kpe_parametric::commands::SetSketchCommand;
 use kpe_geometry::sketch::document::SketchDocument;
 use sketch_editor::solver::SolveTask;
 
@@ -37,30 +38,22 @@ fn handle_pending_actions(
                 cap: true,
                 taper_angle: if ext.taper_angle != 0.0 { Some(ext.taper_angle) } else { None },
             });
-            let cmd = SetSketchCommand {
+            state.execute(Box::new(SetSketchCommand {
                 node_id: node_id.clone(),
                 old_sketch: None,
                 new_sketch: old_sketch,
-            };
-            let mut doc = std::mem::take(&mut state.document);
-            state.history.execute(Box::new(cmd), &mut doc);
-            state.document = doc;
-            state.mark_dirty();
+            }));
         }
     }
 
     if editor.pending_finish {
         editor.pending_finish = false;
         if let Some((node_id, sketch_def)) = editor.exit() {
-            let cmd = SetSketchCommand {
+            state.execute(Box::new(SetSketchCommand {
                 node_id: node_id.clone(),
                 old_sketch: None,
                 new_sketch: sketch_def,
-            };
-            let mut doc = std::mem::take(&mut state.document);
-            state.history.execute(Box::new(cmd), &mut doc);
-            state.document = doc;
-            state.mark_dirty();
+            }));
         }
     }
 

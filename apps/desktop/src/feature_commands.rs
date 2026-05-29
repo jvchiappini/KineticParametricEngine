@@ -3,10 +3,8 @@
 //! simply read selection state from the app and delegate.
 
 use kpe_parametric::commands::features::{
-    self as feature_cmds, ArrayParams, MirrorPlane,
+    self as feature_cmds, ArrayParams, MirrorPlane, build_add_joint_command,
 };
-use kpe_parametric::commands::find_node;
-use kpe_parametric::commands::features::build_add_joint_command;
 
 /// Duplicate the selected node.
 pub fn duplicate_selected(state: &mut crate::app::AppState) {
@@ -66,21 +64,6 @@ pub fn add_chamfer(state: &mut crate::app::AppState, distance: f64) {
     };
     if let Some(cmd) = feature_cmds::build_chamfer_command(&state.document.to_scene(), &selected, distance) {
         state.execute(cmd);
-    }
-}
-
-/// Delete the selected node.
-pub fn delete_selected_node(state: &mut crate::app::AppState) {
-    let selected = match &state.document.selection {
-        Some(id) => id.clone(),
-        None => return,
-    };
-    if selected == "Root" {
-        return;
-    }
-    if let Some(cmd) = feature_cmds::build_delete_command(&state.document.to_scene(), &selected) {
-        state.execute(cmd);
-        state.document.selection = None;
     }
 }
 

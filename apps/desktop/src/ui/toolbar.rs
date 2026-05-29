@@ -42,16 +42,14 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 let undo = ui.add_enabled(can_undo, egui::Button::new("Undo  Ctrl+Z"))
                     .on_hover_text("Undo last operation");
                 if undo.clicked() {
-                    state.history.undo(&mut state.document);
-                    state.mark_dirty();
+                    state.undo();
                 }
 
                 let can_redo = state.history.can_redo();
                 let redo = ui.add_enabled(can_redo, egui::Button::new("Redo  Ctrl+Shift+Z"))
                     .on_hover_text("Redo previously undone operation");
                 if redo.clicked() {
-                    state.history.redo(&mut state.document);
-                    state.mark_dirty();
+                    state.redo();
                 }
 
                 ui.separator();

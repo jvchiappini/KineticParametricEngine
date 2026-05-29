@@ -99,7 +99,7 @@ fn collect_all_ids(node: &GeometryNode, ids: &mut Vec<String>) {
     }
 }
 
-fn find_node_mut<'a>(node: &'a mut GeometryNode, target: &str) -> Option<&'a mut GeometryNode> {
+pub fn find_node_mut<'a>(node: &'a mut GeometryNode, target: &str) -> Option<&'a mut GeometryNode> {
     if node.id == target {
         return Some(node);
     }

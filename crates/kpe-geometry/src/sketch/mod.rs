@@ -5,9 +5,12 @@ pub mod inference;
 pub mod boolean;
 pub mod document;
 pub mod spatial;
+pub mod plane;
 
 use kpe_schema::geometry::{Sketch2D, SketchDef, SketchPrimitive};
 use glam::DVec2;
+
+pub use plane::{to_3d, to_2d, plane_normal, circle_basis, get_sketch_def_local};
 
 pub use entities::*;
 pub use constraints::Constraint;

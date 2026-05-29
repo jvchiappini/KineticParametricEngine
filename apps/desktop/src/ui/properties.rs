@@ -1,7 +1,10 @@
 use bevy_egui::{egui, EguiContexts};
 use bevy_egui::egui::color_picker;
 use crate::app::AppState;
-use crate::commands::{SetParameterCommand, SetJointValueCommand};
+use kpe_parametric::commands::{
+    SetParameterCommand, SetJointValueCommand, SetSketchCommand,
+    find_node, find_node_mut,
+};
 use kpe_schema::geometry::{
     BoxDef, CylinderDef, ExtrudeDef, RevolveDef, GeometryNode, GeometryNodeType, SketchDef, SphereDef, TransformOp,
 };
@@ -37,22 +40,6 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 ui.weak("(no selection)");
             }
         });
-}
-
-fn find_node<'a>(node: &'a GeometryNode, target: &str) -> Option<&'a GeometryNode> {
-    if node.id == target { return Some(node); }
-    for child in &node.children {
-        if let found @ Some(_) = find_node(child, target) { return found; }
-    }
-    None
-}
-
-fn find_node_mut<'a>(node: &'a mut GeometryNode, target: &str) -> Option<&'a mut GeometryNode> {
-    if node.id == target { return Some(node); }
-    for child in &mut node.children {
-        if let found @ Some(_) = find_node_mut(child, target) { return found; }
-    }
-    None
 }
 
 fn show_all_properties(ui: &mut egui::Ui, node: &GeometryNode, node_id: &str, state: &mut AppState) {
@@ -227,16 +214,11 @@ fn show_sketch_properties(ui: &mut egui::Ui, def: SketchDef, node_id: &str, stat
 }
 
 fn update_sketch_extrude(state: &mut AppState, node_id: &str, new_def: SketchDef) {
-    use crate::commands::SetSketchCommand;
-    let cmd = SetSketchCommand {
+    state.execute(Box::new(SetSketchCommand {
         node_id: node_id.to_string(),
         old_sketch: None,
         new_sketch: new_def,
-    };
-    let mut doc = std::mem::take(&mut state.document);
-    state.history.execute(Box::new(cmd), &mut doc);
-    state.document = doc;
-    state.mark_dirty();
+    }));
 }
 
 fn show_extrude_properties(ui: &mut egui::Ui, mut def: ExtrudeDef, node_id: &str, state: &mut AppState) {
@@ -322,13 +304,12 @@ fn set_node_color(node: &mut GeometryNode, target: &str, color: Option<String>) 
 // ── Helpers ────────────────────────────────────
 
 fn exec_param(state: &mut AppState, node_id: &str, name: &str, old: f64, new: f64) {
-    let cmd = SetParameterCommand {
+    state.execute(Box::new(SetParameterCommand {
         node_id: node_id.to_string(),
         param_name: name.to_string(),
         old_value: old,
         new_value: new,
-    };
-    state.history.execute(Box::new(cmd), &mut state.document);
+    }));
 }
 
 fn update_node_type(state: &mut AppState, target: &str, new_type: GeometryNodeType) {
@@ -414,13 +395,11 @@ fn show_joint_properties(ui: &mut egui::Ui, joint_id: &str, state: &mut AppState
         ui.label(label);
         if ui.add(egui::Slider::new(&mut val, -180.0..=180.0)).changed() {
             let new_val = val as f64;
-            let cmd = SetJointValueCommand {
+            state.execute(Box::new(SetJointValueCommand {
                 joint_id: joint.id.clone(),
                 old_value: joint.current_value,
                 new_value: new_val,
-            };
-            state.history.execute(Box::new(cmd), &mut state.document);
-            state.mark_dirty();
+            }));
         }
     });
 

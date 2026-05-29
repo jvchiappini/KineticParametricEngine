@@ -2,7 +2,6 @@ use std::collections::{HashMap, HashSet};
 
 use kpe_geometry::evaluator::{self, SceneGeometry};
 use kpe_parametric::scene::GeometryScene;
-use kpe_schema::geometry::TriangleMesh;
 use kpe_schema::recipe::KPERecipe;
 
 /// Application document wrapping a recipe with UI state and cached geometry.
@@ -77,5 +76,4 @@ impl Default for Document {
     }
 }
 
-/// Re-export for backward compatibility.
-pub use evaluator::build_mesh_with_joints;
+

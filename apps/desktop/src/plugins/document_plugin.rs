@@ -1,5 +1,5 @@
 use bevy::prelude::*;
-use crate::{app, commands, sync, io};
+use crate::{app, commands, feature_commands, sync, io};
 use std::time::Duration;
 
 pub struct DocumentPlugin;
@@ -27,7 +27,7 @@ fn keyboard_shortcuts(
     let ctrl = keys.pressed(KeyCode::ControlLeft) || keys.pressed(KeyCode::ControlRight);
 
     if keys.just_pressed(KeyCode::Delete) || keys.just_pressed(KeyCode::Backspace) {
-        commands::delete_selected_nodes(&mut *state);
+        feature_commands::delete_selected_nodes(&mut *state);
         return;
     }
 
@@ -51,7 +51,7 @@ fn keyboard_shortcuts(
         state.document.multi_selection = all_ids;
         state.document.selection = None;
     } else if keys.just_pressed(KeyCode::KeyD) {
-        commands::duplicate_selected(&mut *state);
+        feature_commands::duplicate_selected(&mut *state);
     } else if keys.just_pressed(KeyCode::KeyS) {
         let _ = io::save_dialog(&state.document);
     }
