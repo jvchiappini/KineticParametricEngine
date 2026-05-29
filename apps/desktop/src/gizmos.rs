@@ -1,5 +1,6 @@
 use bevy::prelude::*;
 use crate::app::AppState;
+use crate::sketch_editor::SketchEditorState;
 use kpe_schema::geometry::{GeometryNode, TransformOp};
 
 const AXIS_LENGTH: f32 = 1.5;
@@ -28,7 +29,9 @@ pub fn gizmo_render_system(
     mut gizmos: Gizmos,
     state: Res<AppState>,
     gizmo_state: Res<GizmoState>,
+    sketch: Res<SketchEditorState>,
 ) {
+    if sketch.active { return; }
     let sel = match &state.document.selection {
         Some(id) => id.clone(),
         None => return,
@@ -70,10 +73,12 @@ fn node_position(node: &GeometryNode, target: &str) -> Option<Vec3> {
 pub fn gizmo_interaction_system(
     mut state: ResMut<AppState>,
     mut gizmo_state: ResMut<GizmoState>,
-    camera_query: Query<(&Camera, &GlobalTransform)>,
+    camera_query: Query<(&Camera, &GlobalTransform), With<Camera3d>>,
     windows: Query<&Window>,
     mouse_buttons: Res<ButtonInput<MouseButton>>,
+    sketch: Res<SketchEditorState>,
 ) {
+    if sketch.active { return; }
     let sel = match &state.document.selection.clone() {
         Some(id) => id.clone(),
         None => return,
@@ -104,45 +109,56 @@ pub fn gizmo_interaction_system(
     let ray = screen_to_ray(cursor_pos, viewport_size, camera, camera_transform);
     let axes = [Vec3::X, Vec3::Y, Vec3::Z];
 
-    match &gizmo_state.interaction.clone() {
-        GizmoInteraction::None => {
-            gizmo_state.hovered_axis = None;
-            for i in 0..3 {
-                let end = origin + axes[i] * AXIS_LENGTH;
-                if ray_hits_segment(ray.0, ray.1, origin, end) {
-                    gizmo_state.hovered_axis = Some(i);
-                    break;
-                }
-            }
+    let is_none = gizmo_state.interaction == GizmoInteraction::None;
+    let is_dragging = matches!(gizmo_state.interaction, GizmoInteraction::Dragging { .. });
 
-            if mouse_buttons.just_pressed(MouseButton::Left) {
-                if let Some(axis) = gizmo_state.hovered_axis {
-                    let end = origin + axes[axis] * AXIS_LENGTH;
-                    let hit = closest_point_on_ray(ray.0, ray.1, origin, end);
-                    let dist = (hit - ray.0).length();
-                    let hit_point = ray.0 + ray.1 * dist;
-                    let proj = (hit_point - origin).dot(axes[axis]);
-                    gizmo_state.interaction = GizmoInteraction::Dragging { axis, offset: proj };
-                    gizmo_state.drag_origin = origin;
-                }
+    if is_none {
+        gizmo_state.hovered_axis = None;
+        for i in 0..3 {
+            let end = origin + axes[i] * AXIS_LENGTH;
+            if ray_hits_segment(ray.0, ray.1, origin, end) {
+                gizmo_state.hovered_axis = Some(i);
+                break;
             }
         }
-        GizmoInteraction::Dragging { axis, offset } => {
-            if mouse_buttons.just_released(MouseButton::Left) {
-                gizmo_state.interaction = GizmoInteraction::None;
-                return;
-            }
 
-            let end = gizmo_state.drag_origin + axes[*axis] * AXIS_LENGTH;
-            let hit = closest_point_on_ray(ray.0, ray.1, gizmo_state.drag_origin, end);
+        if mouse_buttons.just_pressed(MouseButton::Left) {
+            if let Some(axis) = gizmo_state.hovered_axis {
+                let end = origin + axes[axis] * AXIS_LENGTH;
+                let hit = closest_point_on_ray(ray.0, ray.1, origin, end);
+                let dist = (hit - ray.0).length();
+                let hit_point = ray.0 + ray.1 * dist;
+                let proj = (hit_point - origin).dot(axes[axis]);
+                gizmo_state.interaction = GizmoInteraction::Dragging { axis, offset: proj };
+                gizmo_state.drag_origin = origin;
+            }
+        }
+        return;
+    }
+
+    if is_dragging {
+        let drag_origin = gizmo_state.drag_origin;
+
+        if mouse_buttons.just_released(MouseButton::Left) {
+            gizmo_state.interaction = GizmoInteraction::None;
+            return;
+        }
+
+        if let GizmoInteraction::Dragging { axis, offset } = &mut gizmo_state.interaction {
+            let end = drag_origin + axes[*axis] * AXIS_LENGTH;
+            let hit = closest_point_on_ray(ray.0, ray.1, drag_origin, end);
             let dist = (hit - ray.0).length();
             let hit_point = ray.0 + ray.1 * dist;
-            let proj = (hit_point - gizmo_state.drag_origin).dot(axes[*axis]);
-            let delta = proj - offset;
+            let proj = (hit_point - drag_origin).dot(axes[*axis]);
+            let delta = proj - *offset;
 
-            apply_translation(&mut state.document.recipe.scene, &sel, axes[*axis] * delta);
-            state.document.evaluate_node(&sel);
-            state.mark_dirty();
+            *offset = proj;
+
+            if delta.abs() > 0.001 {
+                apply_translation(&mut state.document.recipe.scene, &sel, axes[*axis] * delta);
+                state.document.evaluate_node(&sel);
+                state.mark_dirty();
+            }
         }
     }
 }

@@ -164,7 +164,7 @@ pub fn tessellate_sketch(sketch: &SketchDef) -> Vec<Vec<DVec2>> {
                 contours.push(pts);
             }
             SketchPrimitive::Polygon { points } => {
-                if points.len() >= 3 {
+                if points.len() >= 2 {
                     let pts: Vec<DVec2> = points.iter().map(|p| DVec2::new(p[0], p[1])).collect();
                     contours.push(pts);
                 }

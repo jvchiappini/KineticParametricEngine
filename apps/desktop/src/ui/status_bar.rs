@@ -1,6 +1,8 @@
 use std::time::Instant;
 use bevy_egui::{egui, EguiContexts};
 use crate::app::AppState;
+use kpe_schema::geometry::{GeometryNode, GeometryNodeType};
+use crate::commands;
 
 #[derive(Clone)]
 pub struct FrameTimer {
@@ -15,6 +17,21 @@ impl Default for FrameTimer {
     }
 }
 
+fn node_measurement(node: &GeometryNode) -> Option<String> {
+    match &node.node_type {
+        GeometryNodeType::Box(b) => {
+            Some(format!("Box: {:.2}×{:.2}×{:.2}", b.width, b.height, b.depth))
+        }
+        GeometryNodeType::Cylinder(c) => {
+            Some(format!("Cyl: r{:.2} × h{:.2}", c.radius, c.height))
+        }
+        GeometryNodeType::Sphere(s) => {
+            Some(format!("Sphere: r{:.2}", s.radius))
+        }
+        _ => None,
+    }
+}
+
 pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
     egui::TopBottomPanel::bottom("status_bar")
         .min_height(24.0)
@@ -24,6 +41,15 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 ui.label(format!("Tris: {}", tri_count));
 
                 ui.separator();
+
+                if let Some(ref sel) = state.document.selection {
+                    if let Some(node) = commands::find_node(&state.document.recipe.scene, sel) {
+                        if let Some(meas) = node_measurement(node) {
+                            ui.label(meas);
+                            ui.separator();
+                        }
+                    }
+                }
 
                 let tid = egui::Id::new("frame_timer");
                 if let Some(mut timer) = ui.ctx().data_mut(|d| d.get_temp::<FrameTimer>(tid)) {

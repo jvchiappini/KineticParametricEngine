@@ -12,7 +12,7 @@ pub struct Joint {
     pub current_value: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub enum JointType {
     Revolute,
     Prismatic,

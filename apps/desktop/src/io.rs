@@ -31,12 +31,126 @@ pub fn export_obj_dialog() -> Option<PathBuf> {
         .save_file()
 }
 
+pub fn export_dxf_dialog() -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("DXF Drawing Exchange", &["dxf"])
+        .set_file_name("model.dxf")
+        .save_file()
+}
+
+pub fn export_svg_dialog() -> Option<PathBuf> {
+    FileDialog::new()
+        .add_filter("SVG Scalable Vector Graphics", &["svg"])
+        .set_file_name("model.svg")
+        .save_file()
+}
+
 pub fn save_to_file(path: &std::path::Path, doc: &Document) -> Result<(), String> {
     let json = serde_json::to_string_pretty(&doc.recipe)
         .map_err(|e| format!("serialization error: {}", e))?;
     std::fs::write(path, json)
         .map_err(|e| format!("write error: {}", e))?;
     Ok(())
+}
+
+pub fn export_dxf(path: &std::path::Path, doc: &Document) -> Result<(), String> {
+    use std::io::Write;
+    let mut lines = Vec::new();
+
+    // DXF header
+    lines.push("0\nSECTION\n2\nHEADER\n0\nENDSEC\n".to_string());
+
+    // TABLES section
+    lines.push("0\nSECTION\n2\nTABLES\n0\nTABLE\n2\nLAYER\n70\n1\n".to_string());
+    lines.push("0\nLAYER\n2\n0\n70\n0\n62\n7\n6\nCONTINUOUS\n".to_string());
+    lines.push("0\nENDTAB\n0\nENDSEC\n".to_string());
+
+    // ENTITIES section
+    lines.push("0\nSECTION\n2\nENTITIES\n".to_string());
+    for (_id, mesh) in &doc.evaluated.meshes {
+        for tri in &mesh.triangles {
+            let v0 = &mesh.vertices[tri[0] as usize];
+            let v1 = &mesh.vertices[tri[1] as usize];
+            let v2 = &mesh.vertices[tri[2] as usize];
+            // Project to XY plane (ignore Z) for 2D DXF
+            lines.push(format!(
+                "0\n3DFACE\n8\n0\n10\n{}\n20\n{}\n30\n0.0\n11\n{}\n21\n{}\n31\n0.0\n12\n{}\n22\n{}\n32\n0.0\n13\n{}\n23\n{}\n33\n0.0\n",
+                v0[0], v0[1], v1[0], v1[1], v2[0], v2[1], v2[0], v2[1]
+            ));
+        }
+    }
+    lines.push("0\nENDSEC\n".to_string());
+    // EOF
+    lines.push("0\nEOF\n".to_string());
+
+    let content = lines.concat();
+    let mut file = std::fs::File::create(path)
+        .map_err(|e| format!("create error: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("write error: {}", e))
+}
+
+pub fn export_svg(path: &std::path::Path, doc: &Document) -> Result<(), String> {
+    use std::io::Write;
+
+    // Compute bounding box of all projected vertices
+    let mut min_x = f64::MAX;
+    let mut min_y = f64::MAX;
+    let mut max_x = f64::MIN;
+    let mut max_y = f64::MIN;
+    for mesh in doc.evaluated.meshes.values() {
+        for v in &mesh.vertices {
+            if v[0] < min_x { min_x = v[0]; }
+            if v[1] < min_y { min_y = v[1]; }
+            if v[0] > max_x { max_x = v[0]; }
+            if v[1] > max_y { max_y = v[1]; }
+        }
+    }
+    let range_x = max_x - min_x;
+    let range_y = max_y - min_y;
+    if range_x < 0.001 || range_y < 0.001 {
+        return Err("Model too small for SVG".into());
+    }
+    let padding = 10.0;
+    let svg_w = 800.0;
+    let svg_h = 800.0;
+    let scale = (svg_w - padding * 2.0) / range_x;
+    let scale_y = (svg_h - padding * 2.0) / range_y;
+    let scale = scale.min(scale_y);
+
+    let mut paths = Vec::new();
+    for mesh in doc.evaluated.meshes.values() {
+        for tri in &mesh.triangles {
+            let v0 = &mesh.vertices[tri[0] as usize];
+            let v1 = &mesh.vertices[tri[1] as usize];
+            let v2 = &mesh.vertices[tri[2] as usize];
+            let to_svg = |x: f64, y: f64| -> (f64, f64) {
+                let sx = (x - min_x) * scale + padding;
+                let sy = svg_h - ((y - min_y) * scale + padding); // flip Y
+                (sx, sy)
+            };
+            let (ax, ay) = to_svg(v0[0], v0[1]);
+            let (bx, by) = to_svg(v1[0], v1[1]);
+            let (cx, cy) = to_svg(v2[0], v2[1]);
+            paths.push(format!(
+                "<polygon points=\"{:.3},{:.3} {:.3},{:.3} {:.3},{:.3}\" fill=\"none\" stroke=\"black\" stroke-width=\"0.5\"/>",
+                ax, ay, bx, by, cx, cy
+            ));
+        }
+    }
+
+    let content = format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="{:.0}" height="{:.0}" viewBox="0 0 {:.0} {:.0}">
+{}
+</svg>"#,
+        svg_w, svg_h, svg_w, svg_h, paths.join("\n")
+    );
+
+    let mut file = std::fs::File::create(path)
+        .map_err(|e| format!("create error: {}", e))?;
+    file.write_all(content.as_bytes())
+        .map_err(|e| format!("write error: {}", e))
 }
 
 pub fn load_from_file(path: &std::path::Path) -> Result<Document, String> {
@@ -46,6 +160,8 @@ pub fn load_from_file(path: &std::path::Path) -> Result<Document, String> {
         .map_err(|e| format!("deserialization error: {}", e))?;
     let mut doc = Document::new();
     doc.recipe = recipe;
+    doc.file_path = Some(path.to_string_lossy().to_string());
+    doc.is_modified = false;
     doc.evaluate_all();
     doc.selection = doc.all_node_ids().first().cloned();
     Ok(doc)

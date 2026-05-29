@@ -12,6 +12,7 @@ fn make_box() -> TriangleMesh {
         transform: None,
         children: vec![],
         operations: vec![],
+        color: None,
     };
     build_mesh_from_node(&node)
 }
@@ -23,6 +24,7 @@ fn make_cylinder(segments: u32) -> TriangleMesh {
         transform: None,
         children: vec![],
         operations: vec![],
+        color: None,
     };
     build_mesh_from_node(&node)
 }

@@ -8,6 +8,7 @@ pub struct GeometryNode {
     pub transform: Option<TransformOp>,
     pub children: Vec<GeometryNode>,
     pub operations: Vec<CsgOperation>,
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -21,6 +22,24 @@ pub enum GeometryNodeType {
     Revolve(RevolveDef),
     Sweep(SweepDef),
     Compound,
+    Assembly(AssemblyDef),
+    Fillet(FilletDef),
+    Chamfer(ChamferDef),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AssemblyDef {
+    pub name: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FilletDef {
+    pub radius: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChamferDef {
+    pub distance: f64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,6 +93,7 @@ pub struct ExtrudeDef {
     pub distance: f64,
     pub direction: Option<[f64; 3]>,
     pub cap: bool,
+    pub taper_angle: Option<f64>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

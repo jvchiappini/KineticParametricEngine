@@ -91,6 +91,29 @@ mod manifold_backend {
         }
     }
 
+    /// Apply fillet to mesh by rounding sharp edges.
+    /// Uses Manifold's smooth_out with radius-based smoothness.
+    pub fn apply_fillet(mesh: &TriangleMesh, radius: f64) -> TriangleMesh {
+        let m = match to_manifold(mesh) {
+            Some(m) => m,
+            None => return mesh.clone(),
+        };
+        let smoothness = (radius / (radius + 0.5)).clamp(0.1, 0.95);
+        let result = m.smooth_out(5.0, smoothness);
+        from_manifold(&result)
+    }
+
+    /// Apply chamfer to mesh by refining and smoothing edges.
+    pub fn apply_chamfer(mesh: &TriangleMesh, distance: f64) -> TriangleMesh {
+        let m = match to_manifold(mesh) {
+            Some(m) => m,
+            None => return mesh.clone(),
+        };
+        let refined = m.refine_to_length(distance * 0.5);
+        let result = refined.smooth_out(5.0, 0.3);
+        from_manifold(&result)
+    }
+
     pub fn apply_op(
         mesh_a: &TriangleMesh,
         mesh_b: &TriangleMesh,
@@ -194,6 +217,14 @@ mod csgrs_backend {
         TriangleMesh { vertices, normals, uvs: vec![[0.0, 0.0]; num_verts], triangles }
     }
 
+    pub fn apply_fillet(mesh: &TriangleMesh, _radius: f64) -> TriangleMesh {
+        mesh.clone()
+    }
+
+    pub fn apply_chamfer(mesh: &TriangleMesh, _distance: f64) -> TriangleMesh {
+        mesh.clone()
+    }
+
     pub fn apply_op(mesh_a: &TriangleMesh, mesh_b: &TriangleMesh, op: &CsgOpType) -> TriangleMesh {
         let csg_a = triangle_mesh_to_csg(mesh_a);
         let csg_b = triangle_mesh_to_csg(mesh_b);
@@ -258,6 +289,20 @@ impl CsgKernel {
             tool_id: "internal".to_string(),
             tool_transform: None,
         })
+    }
+
+    pub fn apply_fillet(&self, mesh: &TriangleMesh, radius: f64) -> TriangleMesh {
+        #[cfg(feature = "manifold")]
+        { manifold_backend::apply_fillet(mesh, radius) }
+        #[cfg(not(feature = "manifold"))]
+        { csgrs_backend::apply_fillet(mesh, radius) }
+    }
+
+    pub fn apply_chamfer(&self, mesh: &TriangleMesh, distance: f64) -> TriangleMesh {
+        #[cfg(feature = "manifold")]
+        { manifold_backend::apply_chamfer(mesh, distance) }
+        #[cfg(not(feature = "manifold"))]
+        { csgrs_backend::apply_chamfer(mesh, distance) }
     }
 
     pub fn build_brep(&self, mesh: &TriangleMesh) -> BRepModel {

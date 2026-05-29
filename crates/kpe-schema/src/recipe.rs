@@ -45,6 +45,7 @@ impl Default for KPERecipe {
                 transform: None,
                 children: vec![],
                 operations: vec![],
+                color: None,
             },
             joints: vec![],
             constraints: vec![],
@@ -119,6 +120,7 @@ mod tests {
             transform: None,
             children: vec![],
             operations: vec![],
+            color: None,
         };
         match box_node.node_type {
             GeometryNodeType::Box(b) => {

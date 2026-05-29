@@ -3,23 +3,29 @@ use bevy::render::mesh::{Indices, PrimitiveTopology};
 use bevy::render::render_asset::RenderAssetUsages;
 use std::collections::{HashMap, HashSet};
 use crate::app::AppState;
+use crate::commands;
 use kpe_schema::geometry::TriangleMesh;
 
 #[derive(Resource)]
 pub struct MeshCache {
     pub handles: HashMap<String, Handle<Mesh>>,
-    pub material: Handle<StandardMaterial>,
+    pub entities: HashMap<String, Entity>,
+    pub materials: HashMap<String, Handle<StandardMaterial>>,
     pub last_gen: u64,
 }
 
 impl Default for MeshCache {
     fn default() -> Self {
-        Self { handles: HashMap::new(), material: Handle::default(), last_gen: 0 }
+        Self { handles: HashMap::new(), entities: HashMap::new(), materials: HashMap::new(), last_gen: 0 }
     }
 }
 
 #[derive(Component)]
 pub struct SceneMeshRoot;
+
+/// Maps a Bevy entity back to its scene node ID for selection
+#[derive(Component)]
+pub struct MeshNodeId(pub String);
 
 pub fn setup_scene(mut commands: Commands) {
     commands.spawn((
@@ -50,46 +56,63 @@ pub fn sync_meshes(
     cache.last_gen = state.mesh_gen;
 
     let mut known: HashSet<String> = HashSet::new();
+    let hidden = &state.document.hidden_nodes;
 
     for (id, tri_mesh) in &state.document.evaluated.meshes {
+        if hidden.contains(id) { continue; }
         known.insert(id.clone());
+
+        let node_color = commands::find_node(&state.document.recipe.scene, id)
+            .and_then(|n| n.color.as_ref())
+            .cloned();
 
         if let Some(handle) = cache.handles.get(id) {
             let bevy_mesh = kpe_mesh_to_bevy(tri_mesh);
             meshes.insert(handle.id(), bevy_mesh);
+            // Update material color if changed
+            if let Some(mat_handle) = cache.materials.get(id) {
+                if let Some(mat) = materials.get_mut(mat_handle.id()) {
+                    mat.base_color = hex_to_bevy_color(&node_color);
+                }
+            }
         } else {
             let bevy_mesh = kpe_mesh_to_bevy(tri_mesh);
             let handle = meshes.add(bevy_mesh);
-            let mat_handle = if cache.material.id() == Handle::default().id() {
-                let mat = materials.add(StandardMaterial {
-                    base_color: Color::srgb(0.25, 0.5, 0.9),
-                    metallic: 0.1,
-                    perceptual_roughness: 0.3,
-                    ..default()
-                });
-                cache.material = mat.clone();
-                mat
-            } else {
-                cache.material.clone()
+            let mat_handle = match cache.materials.get(id) {
+                Some(h) => h.clone(),
+                None => {
+                    let mat = materials.add(StandardMaterial {
+                        base_color: hex_to_bevy_color(&node_color),
+                        metallic: 0.1,
+                        perceptual_roughness: 0.3,
+                        ..default()
+                    });
+                    cache.materials.insert(id.clone(), mat.clone());
+                    mat
+                }
             };
-            commands.entity(root_entity).with_children(|parent| {
-                parent.spawn((
-                    Mesh3d(handle.clone()),
-                    MeshMaterial3d(mat_handle.clone()),
-                    Visibility::default(),
-                    Transform::default(),
-                ));
-            });
+            let child = commands.spawn((
+                Mesh3d(handle.clone()),
+                MeshMaterial3d(mat_handle.clone()),
+                Visibility::default(),
+                Transform::default(),
+                MeshNodeId(id.clone()),
+            )).id();
+            commands.entity(root_entity).add_child(child);
             cache.handles.insert(id.clone(), handle);
+            cache.entities.insert(id.clone(), child);
         }
     }
 
-    // Remove stale meshes
+    // Despawn stale or hidden meshes
     let stale: Vec<String> = cache.handles.keys()
-        .filter(|k| !known.contains(k.as_str()))
+        .filter(|k| !known.contains(k.as_str()) || hidden.contains(*k))
         .cloned()
         .collect();
     for id in &stale {
+        if let Some(entity) = cache.entities.remove(id) {
+            commands.entity(entity).despawn_recursive();
+        }
         cache.handles.remove(id);
     }
 }
@@ -129,4 +152,21 @@ pub fn kpe_mesh_to_bevy(kpe_mesh: &TriangleMesh) -> Mesh {
     mesh.compute_flat_normals();
 
     mesh
+}
+
+fn hex_to_bevy_color(hex: &Option<String>) -> Color {
+    match hex {
+        Some(h) if h.len() >= 6 => {
+            let h = h.trim_start_matches('#');
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                u8::from_str_radix(&h[0..2], 16),
+                u8::from_str_radix(&h[2..4], 16),
+                u8::from_str_radix(&h[4..6], 16),
+            ) {
+                return Color::srgb(r as f32 / 255.0, g as f32 / 255.0, b as f32 / 255.0);
+            }
+            Color::srgb(0.25, 0.5, 0.9)
+        }
+        _ => Color::srgb(0.25, 0.5, 0.9),
+    }
 }

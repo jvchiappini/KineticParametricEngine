@@ -12,6 +12,14 @@ fn project_to_3d(p: DVec2, plane: &SketchPlane) -> DVec3 {
     }
 }
 
+fn project_to_2d(p: DVec2, _plane: &SketchPlane) -> DVec2 {
+    p
+}
+
+fn project_to_3d_from_2d(p: DVec2, plane: &SketchPlane) -> DVec3 {
+    project_to_3d(p, plane)
+}
+
 fn extrude_direction(plane: &SketchPlane) -> DVec3 {
     match plane {
         SketchPlane::XY => DVec3::Z,
@@ -26,17 +34,40 @@ fn extrude_contour(
     distance: f64,
     dir: DVec3,
     cap: bool,
+    taper_angle: Option<f64>,
 ) -> TriangleMesh {
     let n = contour.len();
     if n < 3 {
         return empty();
     }
 
-    let mut verts: Vec<[f64; 3]> = Vec::new();
-    let mut tris: Vec<[u32; 3]> = Vec::new();
-
     let normal_dir = dir.normalize();
     let ext_dir = normal_dir * distance;
+
+    if let Some(angle) = taper_angle {
+        if angle.abs() < 0.01 {
+            return extrude_contour_no_taper(contour, plane, distance, dir, cap);
+        }
+        let tan_a = angle.to_radians().tan();
+        let segs = 8.max((distance.abs() * 0.5).ceil() as usize);
+        return extrude_contour_tapered(contour, plane, distance, normal_dir, cap, tan_a, segs);
+    }
+    extrude_contour_no_taper(contour, plane, distance, dir, cap)
+}
+
+fn extrude_contour_no_taper(
+    contour: &[DVec2],
+    plane: &SketchPlane,
+    distance: f64,
+    dir: DVec3,
+    cap: bool,
+) -> TriangleMesh {
+    let n = contour.len();
+    let normal_dir = dir.normalize();
+    let ext_dir = normal_dir * distance;
+
+    let mut verts: Vec<[f64; 3]> = Vec::new();
+    let mut tris: Vec<[u32; 3]> = Vec::new();
 
     let bottom_start = 0u32;
     for p in contour {
@@ -72,6 +103,60 @@ fn extrude_contour(
     mesh(verts, tris)
 }
 
+fn extrude_contour_tapered(
+    contour: &[DVec2],
+    plane: &SketchPlane,
+    distance: f64,
+    normal_dir: DVec3,
+    cap: bool,
+    tan_a: f64,
+    segs: usize,
+) -> TriangleMesh {
+    let n = contour.len();
+    let base_2d: Vec<DVec2> = contour.iter().map(|p| project_to_2d(*p, plane)).collect();
+    let step = distance / segs as f64;
+    let mut verts: Vec<[f64; 3]> = Vec::new();
+    let mut tris: Vec<[u32; 3]> = Vec::new();
+
+    for ring in 0..=segs {
+        let h = ring as f64 * step;
+        let scale = 1.0 - (h / distance) * tan_a;
+        let offset = normal_dir * h;
+        for p in &base_2d {
+            let sp = *p * scale;
+            let v3 = project_to_3d_from_2d(sp, plane) + offset;
+            verts.push([v3.x, v3.y, v3.z]);
+        }
+    }
+
+    let pitch = n as u32;
+    for ring in 0..segs {
+        for i in 0..n {
+            let next = (i + 1) % n;
+            let r0 = ring as u32 * pitch + i as u32;
+            let r1 = ring as u32 * pitch + next as u32;
+            let r2 = (ring as u32 + 1) * pitch + i as u32;
+            let r3 = (ring as u32 + 1) * pitch + next as u32;
+            tris.push([r0, r2, r3]);
+            tris.push([r0, r3, r1]);
+        }
+    }
+
+    if cap {
+        // bottom cap
+        for i in 1..n - 1 {
+            tris.push([0u32, (i as u32 + 1), i as u32]);
+        }
+        // top cap
+        let top_start = segs as u32 * pitch;
+        for i in 1..n - 1 {
+            tris.push([top_start, top_start + i as u32, top_start + i as u32 + 1]);
+        }
+    }
+
+    mesh(verts, tris)
+}
+
 pub fn extrude_sketch(sketch: &SketchDef, ext: &ExtrudeDef) -> TriangleMesh {
     let contours = tessellate_sketch(sketch);
     let dir = match ext.direction {
@@ -79,7 +164,7 @@ pub fn extrude_sketch(sketch: &SketchDef, ext: &ExtrudeDef) -> TriangleMesh {
         None => extrude_direction(&sketch.plane),
     };
     merge_contours(contours, |contour| {
-        extrude_contour(contour, &sketch.plane, ext.distance, dir, ext.cap)
+        extrude_contour(contour, &sketch.plane, ext.distance, dir, ext.cap, ext.taper_angle)
     })
 }
 

@@ -34,6 +34,7 @@ fn bench_extrude_rect(c: &mut Criterion) {
         distance: 5.0,
         direction: None,
         cap: true,
+        taper_angle: None,
     };
 
     c.bench_function("extrude/rectangle", |b| {
@@ -51,6 +52,7 @@ fn bench_extrude_complex(c: &mut Criterion) {
         distance: 3.0,
         direction: None,
         cap: true,
+        taper_angle: None,
     };
 
     c.bench_function("extrude/complex_100_verts", |b| {

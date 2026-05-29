@@ -76,6 +76,7 @@ mod tests {
             transform: None,
             children: vec![],
             operations: vec![],
+            color: None,
         };
         let cutlist = generator.generate(&scene);
         assert_eq!(cutlist.pieces.len(), 1);
@@ -97,6 +98,7 @@ mod tests {
                     transform: None,
                     children: vec![],
                     operations: vec![],
+                    color: None,
                 },
                 GeometryNode {
                     id: "child2".to_string(),
@@ -104,9 +106,11 @@ mod tests {
                     transform: None,
                     children: vec![],
                     operations: vec![],
+                    color: None,
                 },
             ],
             operations: vec![],
+            color: None,
         };
         let cutlist = generator.generate(&scene);
         assert_eq!(cutlist.pieces.len(), 2);

@@ -1,6 +1,8 @@
 use bevy::prelude::*;
 use bevy::input::mouse::{MouseMotion, MouseWheel};
 use bevy::math::Vec3;
+use crate::sync::MeshNodeId;
+use bevy::render::primitives::Aabb;
 
 #[derive(Component)]
 pub struct OrbitCamera {
@@ -33,6 +35,7 @@ pub fn orbit_camera_system(
     mut motion_evr: EventReader<MouseMotion>,
     mut scroll_evr: EventReader<MouseWheel>,
     keyboard: Res<ButtonInput<KeyCode>>,
+    mesh_query: Query<&Aabb, With<MeshNodeId>>,
 ) {
     let (mut transform, mut camera) = match query.get_single_mut() {
         Ok(q) => q,
@@ -71,11 +74,34 @@ pub fn orbit_camera_system(
         camera.distance = camera.distance.clamp(0.5, 100.0);
     }
 
-    // F: fit all (reset)
+    // F: fit all (content bounding box)
     if keyboard.just_pressed(KeyCode::KeyF) {
+        fit_all(&mut camera, &mesh_query);
+    }
+
+    // View presets: 1=Front, 2=Top, 3=Right, 4=Iso
+    if keyboard.just_pressed(KeyCode::Digit1) {
+        camera.target = Vec3::ZERO;
+        camera.distance = 12.0;
+        camera.yaw = 0.0;
+        camera.pitch = 0.0;
+    }
+    if keyboard.just_pressed(KeyCode::Digit2) {
+        camera.target = Vec3::ZERO;
+        camera.distance = 12.0;
+        camera.yaw = 0.0;
+        camera.pitch = std::f32::consts::FRAC_PI_2 - 0.01;
+    }
+    if keyboard.just_pressed(KeyCode::Digit3) {
+        camera.target = Vec3::ZERO;
+        camera.distance = 12.0;
+        camera.yaw = std::f32::consts::FRAC_PI_2;
+        camera.pitch = 0.0;
+    }
+    if keyboard.just_pressed(KeyCode::Digit4) {
         camera.target = Vec3::ZERO;
         camera.distance = 10.0;
-        camera.yaw = 0.0;
+        camera.yaw = 0.4;
         camera.pitch = 0.4;
     }
 
@@ -93,4 +119,27 @@ pub fn orbit_camera_system(
 
     transform.translation = eye;
     transform.look_at(camera.target, Vec3::Y);
+}
+
+fn fit_all(camera: &mut OrbitCamera, mesh_query: &Query<&Aabb, With<MeshNodeId>>) {
+    let mut min = Vec3::splat(f32::MAX);
+    let mut max = Vec3::splat(f32::MIN);
+    let mut any = false;
+    for aabb in mesh_query.iter() {
+        min = min.min(aabb.min().into());
+        max = max.max(aabb.max().into());
+        any = true;
+    }
+    if !any {
+        camera.target = Vec3::ZERO;
+        camera.distance = 10.0;
+        return;
+    }
+    let center = (min + max) * 0.5;
+    let size = max - min;
+    let radius = size.length() * 0.5;
+    camera.target = center;
+    camera.distance = (radius + 2.0).max(2.0);
+    camera.yaw = 0.4;
+    camera.pitch = 0.4;
 }

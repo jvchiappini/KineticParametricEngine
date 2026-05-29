@@ -44,6 +44,7 @@ impl RuleEngine {
                             transform: None,
                             children: vec![],
                             operations: vec![],
+                            color: None,
                         };
                         modified.scene.children.push(child_node);
                     }
