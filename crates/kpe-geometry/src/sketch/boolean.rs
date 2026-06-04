@@ -94,7 +94,7 @@ fn point_in_contour(p: DVec2, contours: &[Vec<DVec2>]) -> bool {
     false
 }
 
-fn point_in_polygon(p: DVec2, polygon: &[DVec2]) -> bool {
+pub(crate) fn point_in_polygon(p: DVec2, polygon: &[DVec2]) -> bool {
     let n = polygon.len();
     if n < 3 {
         return false;

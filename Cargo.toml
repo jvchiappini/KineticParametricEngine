@@ -28,11 +28,20 @@ criterion = { version = "0.5", features = ["html_reports"] }
 [patch.crates-io]
 core2 = { git = "https://github.com/bbqsrc/core2", rev = "545e84bcb0f235b12e21351e0c69767958efe2a7" }
 
-# Soluciona el error LNK1318 y acelera la ejecución de Bevy
+# Optimizado para minimizar espacio en disco
+# strip elimina debug symbols (los .pdb son los que más pesan en Windows)
+# incremental=false evita que la carpeta incremental se acumule
+[profile.dev]
+strip = "debuginfo"
+debug = 0
+incremental = false
+
+# Las dependencias externas se optimizan a velocidad máxima
 [profile.dev.package."*"]
 opt-level = 3
-debug = false
+debug = 0
 
+# kpe-app se compila rápido para iterar
 [profile.dev.package.kpe-app]
 opt-level = 0
-debug = true
+debug = 0

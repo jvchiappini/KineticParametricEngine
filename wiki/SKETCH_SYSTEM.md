@@ -1,5 +1,7 @@
 # Sketch System
 
+> **Note (Junio 2026):** KPE now has two parallel modeling workflows. The **BuildTool system** (`build_tool/mod.rs`) provides SketchUp-style direct 3D manipulation and is the primary workflow for rapid modeling. The **2D Sketch Engine** (documented here) remains available for complex parametric profiles requiring precise constraint-based drafting. See ADR-010 for the architectural rationale.
+
 ## SketchEditorState Resource
 
 `apps/desktop/src/sketch_editor.rs:61` — A Bevy `Resource` that holds all sketch editing state. It exists as a singleton alongside `AppState` and is initialized at startup (`main.rs:40`).

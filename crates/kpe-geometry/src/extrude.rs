@@ -42,7 +42,6 @@ fn extrude_contour(
     }
 
     let normal_dir = dir.normalize();
-    let ext_dir = normal_dir * distance;
 
     if let Some(angle) = taper_angle {
         if angle.abs() < 0.01 {

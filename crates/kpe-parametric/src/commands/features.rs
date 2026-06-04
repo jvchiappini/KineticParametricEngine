@@ -88,6 +88,7 @@ pub fn build_array_command(
             translation: None,
             rotation: None,
             scale: None,
+            pivots: Vec::new(),
         });
         let fi = i as f64;
         t.translation = Some([
@@ -156,6 +157,7 @@ pub fn build_mirror_command(
         translation: None,
         rotation: None,
         scale: None,
+        pivots: Vec::new(),
     });
     t.scale = Some(plane.scale_factors());
 
@@ -371,6 +373,86 @@ pub fn build_add_joint_command(
     joint: Joint,
 ) -> Box<dyn Command> {
     Box::new(super::AddJointCommand { joint })
+}
+
+/// Build a command that wraps multiple nodes into a `JointGroup` and
+/// optionally creates a joint between the group and a parent.
+///
+/// `node_ids` — list of sibling node IDs to group together.
+/// `parent_id` — the parent under which the group lives (typically the
+///               current parent of the first node).
+///
+/// If `joint_to_parent` is `Some`, a joint is also created linking the
+/// parent to the new group.
+pub fn build_joint_group_command(
+    scene: &GeometryScene,
+    node_ids: &[String],
+    parent_id: &str,
+    joint_to_parent: Option<Joint>,
+) -> Option<Box<dyn Command>> {
+    if node_ids.is_empty() {
+        return None;
+    }
+
+    let mut commands: Vec<Box<dyn Command>> = Vec::new();
+
+    // Compute a unique ID for the group
+    let mut existing_ids = Vec::new();
+    collect_ids(&scene.scene, &mut existing_ids);
+    let group_id = format!("JointGroup_{:03}", super::next_counter(&scene.scene, "JointGroup_"));
+
+    let group_node = GeometryNode {
+        id: group_id.clone(),
+        node_type: GeometryNodeType::JointGroup,
+        transform: None,
+        children: Vec::new(), // will be populated by move commands below
+        operations: vec![],
+        color: None,
+    };
+
+    // Add the empty group to the target parent
+    let add_group = Box::new(super::AddFeatureCommand {
+        parent_id: parent_id.to_string(),
+        node: group_node,
+    });
+    commands.push(add_group);
+
+    // Move each selected node into the group
+    for node_id in node_ids {
+        let move_cmd = Box::new(super::MoveNodeCommand {
+            source_id: node_id.clone(),
+            target_parent_id: group_id.clone(),
+            insert_index: usize::MAX, // append
+            old_parent_id: String::new(), // filled on execute
+            old_index: 0,
+        });
+        commands.push(move_cmd);
+    }
+
+    // Optionally create a joint between the parent and the group
+    if let Some(joint) = joint_to_parent {
+        let add_joint = Box::new(super::AddJointCommand { joint });
+        commands.push(add_joint);
+    }
+
+    Some(Box::new(super::CompoundCommand {
+        commands,
+        label: "Group & Joint".to_string(),
+    }))
+}
+
+/// Build a command that sets a joint's current value(s).
+pub fn build_set_joint_value_command(
+    scene: &GeometryScene,
+    joint_id: &str,
+    new_values: kpe_schema::joint::JointValues,
+) -> Option<Box<dyn Command>> {
+    let joint = scene.joints.iter().find(|j| j.id == joint_id)?;
+    Some(Box::new(super::SetJointValueCommand {
+        joint_id: joint_id.to_string(),
+        old_values: joint.current_values.clone(),
+        new_values,
+    }))
 }
 
 #[cfg(test)]

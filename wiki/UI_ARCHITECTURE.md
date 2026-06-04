@@ -2,7 +2,7 @@
 
 ## egui Panel Layout
 
-The UI is built entirely with egui panels, composed in `ui_system()` (`app.rs:46`). The main layout has four panels:
+The UI is built entirely with egui panels, composed in `ui_system()` (`app.rs:46`). The main layout has four panels plus a floating tool palette:
 
 ### Toolbar (top)
 
@@ -10,7 +10,16 @@ The UI is built entirely with egui panels, composed in `ui_system()` (`app.rs:46
 - Document-level buttons: New, Open, Save
 - Undo/Redo buttons bound to `CommandHistory`
 - Export menu (STL, OBJ)
+- View preset buttons: Front, Top, Right, Iso
 - Triangle count readout
+
+### Build Tool Palette (floating, top-left)
+
+`build_tool/mod.rs` — `tool_palette_ui_system()` — Floating `egui::Window` anchored at `[220.0, 42.0]` (below toolbar, next to scene tree):
+- 7 mini buttons: Sel, Rect, Circ, Line, P/P, Move, Erase
+- Active tool highlighted in blue with stroke glow
+- `BuildToolState.active_tool` updated on click; `BuildToolState.phase` reset to Idle
+- Phase help text: bottom-left tooltip when tool is active (e.g. "Click to place second point. ESC to cancel.")
 
 ### Scene Tree (left)
 

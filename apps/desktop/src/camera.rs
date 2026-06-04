@@ -10,6 +10,7 @@ pub struct OrbitCamera {
     pub yaw: f32,
     pub pitch: f32,
     pub distance: f32,
+    #[allow(dead_code)]
     pub fov_y: f32,
     pub sensitivity: f32,
     pub zoom_speed: f32,
@@ -19,12 +20,12 @@ impl Default for OrbitCamera {
     fn default() -> Self {
         Self {
             target: Vec3::ZERO,
-            yaw: 0.0,
+            yaw: 0.4,
             pitch: 0.4,
-            distance: 10.0,
+            distance: 300.0,   // 300 mm = 30 cm initial view
             fov_y: 45.0_f32.to_radians(),
             sensitivity: 0.005,
-            zoom_speed: 0.1,
+            zoom_speed: 0.12,
         }
     }
 }
@@ -71,7 +72,7 @@ pub fn orbit_camera_system(
     // Scroll: zoom
     if scroll != 0.0 {
         camera.distance *= 1.0 - scroll * camera.zoom_speed;
-        camera.distance = camera.distance.clamp(0.5, 100.0);
+        camera.distance = camera.distance.clamp(0.5, 50_000.0);
     }
 
     // F: fit all (content bounding box)

@@ -1,0 +1,103 @@
+use kpe_schema::geometry::{BoxDef, CylinderDef, SphereDef, TriangleMesh};
+
+pub(crate) fn build_box(def: &BoxDef) -> TriangleMesh {
+    let hw = def.width / 2.0;
+    let hh = def.height / 2.0;
+    let hd = def.depth / 2.0;
+
+    let vertices = vec![
+        [-hw, -hh, -hd], [ hw, -hh, -hd], [ hw,  hh, -hd], [-hw,  hh, -hd],
+        [-hw, -hh,  hd], [ hw, -hh,  hd], [ hw,  hh,  hd], [-hw,  hh,  hd],
+    ];
+
+    let triangles = vec![
+        [0, 2, 1], [0, 3, 2], [1, 6, 5], [1, 2, 6],
+        [5, 7, 4], [5, 6, 7], [4, 3, 0], [4, 7, 3],
+        [3, 6, 2], [3, 7, 6], [4, 1, 5], [4, 0, 1],
+    ];
+
+    TriangleMesh { vertices, normals: vec![], uvs: vec![], triangles }
+}
+
+pub(crate) fn build_cylinder(def: &CylinderDef) -> TriangleMesh {
+    let segments = def.segments.max(3) as usize;
+    let mut vertices = vec![[0.0, -def.height / 2.0, 0.0], [0.0, def.height / 2.0, 0.0]];
+    let mut triangles = Vec::new();
+
+    for i in 0..segments {
+        let angle = (i as f64 / segments as f64) * std::f64::consts::TAU;
+        let x = def.radius * angle.cos();
+        let z = def.radius * angle.sin();
+
+        vertices.push([x, -def.height / 2.0, z]);
+        vertices.push([x, def.height / 2.0, z]);
+    }
+
+    for i in 0..segments {
+        let next = (i + 1) % segments;
+        let b0 = (2 + i * 2) as u32;
+        let b1 = (2 + i * 2 + 1) as u32;
+        let n0 = (2 + next * 2) as u32;
+        let n1 = (2 + next * 2 + 1) as u32;
+
+        triangles.push([b0, n1, n0]);
+        triangles.push([b0, b1, n1]);
+        triangles.push([0, b0, n0]);
+        triangles.push([1, n1, b1]);
+    }
+
+    TriangleMesh { vertices, normals: vec![], uvs: vec![], triangles }
+}
+
+pub(crate) fn build_sphere(def: &SphereDef) -> TriangleMesh {
+    let segments = def.segments.max(6) as usize;
+    let rings = (segments / 2).max(3);
+    let mut vertices = Vec::new();
+    let mut triangles = Vec::new();
+
+    vertices.push([0.0, def.radius, 0.0]);
+
+    for ring in 1..rings {
+        let phi = (ring as f64 / rings as f64) * std::f64::consts::PI;
+        for seg in 0..segments {
+            let theta = (seg as f64 / segments as f64) * std::f64::consts::TAU;
+            let x = def.radius * phi.sin() * theta.cos();
+            let y = def.radius * phi.cos();
+            let z = def.radius * phi.sin() * theta.sin();
+            vertices.push([x, y, z]);
+        }
+    }
+
+    vertices.push([0.0, -def.radius, 0.0]);
+
+    for i in 0..segments {
+        let next = (i + 1) % segments;
+        triangles.push([0u32, 1u32 + next as u32, 1u32 + i as u32]);
+    }
+
+    for ring in 0..rings - 2 {
+        for seg in 0..segments {
+            let next = (seg + 1) % segments;
+            let a0 = (1 + ring * segments + seg) as u32;
+            let a1 = (1 + ring * segments + next) as u32;
+            let b0 = (1 + (ring + 1) * segments + seg) as u32;
+            let b1 = (1 + (ring + 1) * segments + next) as u32;
+
+            triangles.push([a0, a1, b1]);
+            triangles.push([a0, b1, b0]);
+        }
+    }
+
+    let bottom = (vertices.len() - 1) as u32;
+    let last_ring_start = 1 + (rings - 2) * segments;
+    for i in 0..segments {
+        let next = (i + 1) % segments;
+        triangles.push([bottom, last_ring_start as u32 + i as u32, last_ring_start as u32 + next as u32]);
+    }
+
+    TriangleMesh { vertices, normals: vec![], uvs: vec![], triangles }
+}
+
+pub(crate) fn empty_mesh() -> TriangleMesh {
+    TriangleMesh { vertices: vec![], normals: vec![], uvs: vec![], triangles: vec![] }
+}

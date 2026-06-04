@@ -16,6 +16,7 @@ impl Default for SolveTask {
     fn default() -> Self { Self(None) }
 }
 
+#[allow(dead_code)]
 pub fn request_solve(editor: &mut SketchEditorState, solve_task: &mut SolveTask) {
     let doc = editor.document.clone();
     editor.last_solve_error = None;

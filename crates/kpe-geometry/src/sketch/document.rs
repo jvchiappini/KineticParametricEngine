@@ -1,9 +1,12 @@
 use serde::{Deserialize, Serialize};
+use kpe_schema::geometry::FaceNode;
 use crate::sketch::entities::*;
 use crate::sketch::constraints::Constraint;
 use crate::sketch::solver::Solver;
 use crate::sketch::inference::{InferenceEngine, SnapResult};
 use crate::sketch::boolean::extrude_contour_to_3d;
+use crate::sketch::dcel::{extract_regions, LineSegment};
+use crate::sketch::face_tree::FaceTreeBuilder;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SketchDocument {
@@ -154,7 +157,7 @@ impl SketchDocument {
         let mut results: Vec<Vec<[f64; 2]>> = Vec::new();
         let pts = &self.points;
 
-        let mut walk = |start: EntityId, is_loop: bool, vis: &mut HashSet<EntityId>, res: &mut Vec<Vec<[f64; 2]>>| {
+        let walk = |start: EntityId, is_loop: bool, vis: &mut HashSet<EntityId>, res: &mut Vec<Vec<[f64; 2]>>| {
             if vis.contains(&start) { return; }
             let mut ordered: Vec<EntityId> = Vec::new();
             let mut cur = Some(start);
@@ -177,6 +180,69 @@ impl SketchDocument {
         for (&pid, nbs) in &adj { if nbs.len() == 1 { walk(pid, false, &mut visited, &mut results); } }
         for (&pid, _) in &adj { if !visited.contains(&pid) { walk(pid, true, &mut visited, &mut results); } }
         results
+    }
+
+    /// Gather all line segments (including linearised circles) for DCEL.
+    fn segments_to_dcel(&self) -> Vec<LineSegment> {
+        let mut segments = Vec::new();
+        // 1. Gather all line segments
+        for line in &self.lines {
+            if let (Some(s), Some(e)) = (
+                self.points.iter().find(|p| p.id == line.start),
+                self.points.iter().find(|p| p.id == line.end),
+            ) {
+                segments.push(LineSegment {
+                    start: glam::DVec2::new(s.x, s.y),
+                    end: glam::DVec2::new(e.x, e.y),
+                });
+            }
+        }
+        // 2. Linearize circles into segments
+        for c in &self.circles {
+            if let Some(center) = self.points.iter().find(|p| p.id == c.center) {
+                let segs = c.radius.max(3.0) as usize * 4; // adaptive res
+                let mut prev: Option<glam::DVec2> = None;
+                for i in 0..=segs {
+                    let a = (i as f64 / segs as f64) * std::f64::consts::TAU;
+                    let curr = glam::DVec2::new(
+                        center.x + c.radius * a.cos(),
+                        center.y + c.radius * a.sin(),
+                    );
+                    if let Some(p) = prev {
+                        segments.push(LineSegment { start: p, end: curr });
+                    }
+                    prev = Some(curr);
+                }
+            }
+        }
+        segments
+    }
+
+    /// Build hierarchical face tree with Even-Odd fill state defaults.
+    /// Root nodes are outer boundaries; children are holes/islands.
+    pub fn get_face_hierarchy(&self) -> Vec<FaceNode> {
+        let segments = self.segments_to_dcel();
+        let raw = extract_regions(&segments);
+        if raw.is_empty() {
+            return Vec::new();
+        }
+        // Also linearise arcs separately so they contribute to the DCEL
+        // (already handled by `extract_regions` via segments_to_dcel).
+        FaceTreeBuilder::build(&raw)
+    }
+
+    /// Extract all independent enclosed faces via DCEL (Graph topology).
+    ///
+    /// Returns faces as `Vec<Vec<[f64; 2]>>` (each face is a closed loop of
+    /// `[x, y]` coordinates).  Arcs and circles are linearised during
+    /// extraction.
+    pub fn get_faces(&self) -> Vec<Vec<[f64; 2]>> {
+        let segments = self.segments_to_dcel();
+        let faces_dvec2 = extract_regions(&segments);
+        faces_dvec2
+            .into_iter()
+            .map(|face| face.into_iter().map(|v| [v.x, v.y]).collect())
+            .collect()
     }
 
     /// Count degrees of freedom: free points × 2 + circles × 1 + arcs × 3 − constraints

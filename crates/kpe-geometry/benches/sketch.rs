@@ -11,6 +11,7 @@ fn make_rect_sketch() -> SketchDef {
             SketchPrimitive::Rectangle { x: -2.0, y: -1.0, width: 4.0, height: 2.0 },
         ],
         extrude: None,
+        face_hierarchy: None,
     }
 }
 
@@ -26,6 +27,7 @@ fn make_complex_sketch() -> SketchDef {
         plane: SketchPlane::XY,
         primitives: vec![SketchPrimitive::Polygon { points: pts }],
         extrude: None,
+        face_hierarchy: None,
     }
 }
 
@@ -90,6 +92,7 @@ fn bench_sweep_helix(c: &mut Criterion) {
             SketchPrimitive::Circle { cx: 0.0, cy: 0.0, radius: 0.2, segments: Some(12) },
         ],
         extrude: None,
+        face_hierarchy: None,
     };
     let swp = SweepDef {
         sketch_id: "".into(),

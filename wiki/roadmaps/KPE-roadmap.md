@@ -28,6 +28,21 @@
 - `[x]` `[core]` Mejorar solver 2D — batch gradient descent con cyclic constraints + damping
 - `[x]` `[core]` Undo/Redo para sketch editor (operaciones de dibujo)
 
+## Fase 2.5 — Modelado Directo tipo SketchUp (En progreso)
+
+- `[x]` `[core]` `[ui]` **BuildTool system**: 7 herramientas (Select, Rect, Circle, Line, PushPull, Move, Eraser) con arquitectura de tool state machine, fases (Idle/Placing/Polylining/Dragging), y atajos de teclado [Space/R/C/L/P/M/E]
+- `[x]` `[core]` `[ui]` **Rectangle tool**: click-click en 3D crea `BoxDef(width, depth, height=0.01)` en el scene graph, totalmente undoable
+- `[x]` `[core]` `[ui]` **Circle tool**: click-click crea `CylinderDef(radius, height=0.01, segments=32)`
+- `[x]` `[core]` `[ui]` **Construction plane inference**: primer click detecta la normal de la cara más cercana → plano de construcción; fallback al ground plane
+- `[x]` `[core]` `[ui]` **PushPull tool**: ray-triangle face picking + drag-to-extrude con `extrude_face()`; snap a 1mm
+- `[x]` `[core]` `[ui]` **Floating tool palette**: 7 botones miniatura con highlight del tool activo + texto de ayuda contextual
+- `[x]` `[core]` `[ui]` **Tool gating**: cada sistema de selección/picking solo responde cuando su tool está activo (Select→AABB, PushPull→ray-triangle, Rect/Circle→creación)
+- `[-]` `[core]` `[ui]` **Line tool**: polyline 3D con segmentos como boxes delgados (scaffolded en ToolPhase::Polylining)
+- `[-]` `[core]` `[ui]` **Move tool**: drag-to-translate nodo seleccionado (scaffolded)
+- `[-]` `[core]` `[ui]` **Eraser tool**: click-to-delete (scaffolded)
+- `[ ]` `[core]` **Parametric push-pull**: modificar BoxDef.height/CylinderDef.height directamente (en lugar de extrusión mesh)
+- `[ ]` `[core]` **Coplanar face grouping**: detectar triángulos coplanares adyacentes para seleccionar caras completas
+
 ## Fase 2 — Modelado de Muebles (Completado)
 
 - `[x]` `[core]` Boolean operations — unir/restar/intersección (CSG con Manifold + csgrs backends)

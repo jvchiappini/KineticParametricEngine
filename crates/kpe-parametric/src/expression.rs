@@ -85,8 +85,12 @@ impl ExpressionEvaluator {
                 .map_err(|_| format!("Cannot parse number: {trimmed}"));
         }
 
-        meval::eval_str(expr)
-            .map_err(|e| format!("Expression error: {e}"))
+        match evalexpr::eval(&expr) {
+            Ok(evalexpr::Value::Float(f)) => Ok(f),
+            Ok(evalexpr::Value::Int(i)) => Ok(i as f64),
+            Ok(other) => Err(format!("Unexpected expression result: {other:?}")),
+            Err(e) => Err(format!("Expression error: {e}")),
+        }
     }
 }
 

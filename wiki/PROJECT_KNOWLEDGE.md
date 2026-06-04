@@ -138,9 +138,33 @@ KineticParametricEngine/
 - **9 semantic wiki files created**: DATA_MODEL, COMMAND_PATTERN, MESH_PIPELINE, UI_ARCHITECTURE, SKETCH_SYSTEM, CAMERA, SELECTION, FILE_FORMAT, KNOWN_ISSUES (all English)
 - All 53 tests pass; `cargo check` clean
 
+### Session 10 (June 2026) — Face-level ray-triangle picking + push-pull extrusion
+- **`push_pull_system.rs`**: new module (474 lines) with `PushPullState` resource, `face_pick_system`, `push_pull_drag_system`, `draw_selected_face_system`
+- **Face picking**: Möller–Trumbore ray-triangle intersection against all scene meshes; shift+click selects face
+- **Push-pull drag**: project mouse ray onto plane (hit point + face normal); signed distance → extrusion; snap to 1mm
+- **Clean re-extrusion**: re-extrudes from original mesh each frame (no error accumulation)
+- **Face highlight**: turquoise wireframe with double-line glow effect
+- **Integration**: viewport_selection gated by tool state; face_pick_system reads BuildToolState
+- All 113 tests pass; `cargo check` clean
+
+### Session 11 (June 2026) — BuildTool system (SketchUp-style)
+- **`build_tool/mod.rs`**: new module (542 lines) with `BuildTool` enum, `BuildToolState` resource, `ToolPhase` state machine
+- **Rectangle tool [R]**: click 1 → infer construction plane → click 2 → create `BoxDef(width, depth, 0.01)` via `AddFeatureCommand`
+- **Circle tool [C]**: click 1 → center → click 2 → create `CylinderDef(radius, 0.01, 32)`
+- **ConstructionPlane**: inferred from face hit normal (ray-triangle picking) or ground plane (Y=0)
+- **Tool palette UI**: floating egui window (top-left, 220×42 offset) with 7 mini buttons; active tool highlighted
+- **Keyboard shortcuts**: Space=Select, R=Rect, C=Circle, L=Line, P=PushPull, M=Move, E=Eraser, ESC=cancel
+- **Tool gating**: each system checks `BuildToolState.active_tool` before responding
+- **Line/Move/Eraser**: scaffolded in ToolPhase (Polylining, Dragging); not yet functional
+- **ADR-010**: documents the hybrid approach (direct 3D tools → parametric nodes)
+- All 113 tests pass; `cargo check` clean (3 warnings: unused future code)
+
 ## Known Gaps (for next session)
 
 ### Critical
+- **Line/Move/Eraser tools**: scaffolded in `ToolPhase` but not implemented; needed for complete SketchUp workflow
+- **Parametric push-pull**: PushPull tool should adjust `BoxDef.height`/`CylinderDef.height` directly (instead of mesh extrude)
+- **Coplanar face grouping**: PushPull selects single triangles; needs adjacent coplanar triangle clustering for face-level selection
 - **No Feature Tree / Construction History**: cannot reorder operations, sketches after extrude don't propagate
 - **CSG Kernel**: `csgrs` BSP tree produces Z-fighting/inverted faces; needs `manifold` integration for reliable boolean ops
 - **Sketch Solver**: gradient descent diverges on cyclic/overconstrained systems; needs Newton-Raphson
@@ -151,11 +175,12 @@ KineticParametricEngine/
 - **No grid snap**: visual grid exists in sketch mode but doesn't constrain mouse
 - **No spline/bezier curves** in sketch editor
 - **No trim/extend/offset** sketch tools
-- **No face/edge highlighting** on 3D hover
+- **No face/edge highlighting** on 3D hover (face highlight exists only for selected push-pull face)
 - **No material preview**: ProceduralMaterial exists in schema but has no UI
 - **Scene tree**: no drag-and-drop reorder, no search/filter, no expand/collapse all
 - **No confirmation dialogs** (delete, unsaved changes)
 - **No recent files** or welcome screen
+- **BuildTool system**: construction plane preview could show a transparent grid; inference text not yet displayed
 
 ### Performance
 - All evaluation blocks the frame (no background threading)

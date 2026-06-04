@@ -40,7 +40,7 @@ impl Default for KPERecipe {
             },
             blocks: HashMap::new(),
             scene: GeometryNode {
-                id: "root".to_string(),
+                id: "Root".to_string(),
                 node_type: crate::geometry::GeometryNodeType::Compound,
                 transform: None,
                 children: vec![],

@@ -26,11 +26,11 @@ pub joint_selection: Option<String>,
 
 `scene_tree.rs:245-253` — Each tree node has a `[v]` / `[ ]` button that adds/removes the node ID from `Document.hidden_nodes`. Hidden nodes are excluded from ray-picking and mesh rendering.
 
-## 3D Viewport Selection
+## 3D Viewport Selection (Tool-Gated)
 
-`main.rs:138-209` — Ray-AABB picking in the 3D viewpoint. The `viewport_selection` system runs on every left-click:
+`main.rs:138-209` — Ray-AABB picking in the 3D viewpoint. The `viewport_selection` system runs on every left-click, **but only when the BuildTool::Select tool is active**:
 
-1. **Prerequisites**: Left button just pressed, RMB and MMB not pressed, cursor within the viewport area (not over panels), sketch editor not active.
+1. **Prerequisites**: `BuildToolState.active_tool == Select`, left button just pressed, RMB and MMB not pressed, cursor within the viewport area (not over panels), sketch editor not active.
 2. **Ray casting**: Uses `Camera::viewport_to_world()` to get a world-space ray from the cursor position.
 3. **Ray-AABB test**: For every entity with `MeshNodeId` and `Aabb` components:
    - Transform the ray from world space to model (local) space using the entity's inverse world matrix.
@@ -39,6 +39,26 @@ pub joint_selection: Option<String>,
 4. **Selection update**: If a hit is found:
    - Without Ctrl: `selection = Some(id)`.
    - With Ctrl: If already selected, deselect; otherwise select.
+
+### Face-Level Selection (PushPull Tool)
+
+`push_pull_system.rs` — Ray-triangle picking for face selection. Activates when **BuildTool::PushPull is active OR shift+click**:
+
+1. **Gate**: `build_tool::is_push_pull_active()` or shift held.
+2. **Ray-triangle test**: Möller–Trumbore algorithm against every triangle of every scene mesh.
+3. **Closest face**: Records `(node_id, triangle_index, world_hit, face_normal)` in `PushPullState`.
+4. **Drag**: Once a face is selected, click and drag on it starts push-pull extrusion.
+5. **Deselect**: Shift+click on empty space clears face selection.
+
+### Other Tool Gating
+
+| Tool | Selection Behavior | System |
+|------|-------------------|--------|
+| Rectangle | No selection; creates BoxDef node on click 2 | `rect_tool_system` |
+| Circle | No selection; creates CylinderDef on click 2 | `circle_tool_system` |
+| Line | No selection; polyline in progress (scaffolded) | `line_tool_system` (future) |
+| Move | Selects node then drags to translate (scaffolded) | `move_tool_system` (future) |
+| Eraser | Deletes node on click (scaffolded) | `eraser_tool_system` (future) |
 
 ### MeshNodeId Component
 

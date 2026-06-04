@@ -1,36 +1,75 @@
-# Roadmap del Motor Paramétrico y Sketch Engine (KPE)
+# Master Architectural Roadmap: Industrial-Grade Sketch Engine (KPE)
 
-Este documento detalla los lineamientos y las profundas mejoras arquitectónicas necesarias para que el sistema de bocetos 2D (Sketch Engine) y su resolutor geométrico abandonen la etapa de prototipado y dominen el estándar industrial *AAA* utilizado en software CAD profesional masivo (NX, SolidWorks). No se incluye código, sino directivas del sistema a nivel arquitectónico.
+Este documento maestro purga los prototipos iniciales y define la hoja de ruta definitiva para evolucionar el **Sketch Engine 2D** de la fase experimental a un estándar **Industrial AAA** equiparable a NX, Fusion360, SolidWorks y AutoCAD.
+
+La filosofía rectora es el rigor y la precisión matemática: Cero inyecciones de código local en las vistas, delegación topológica al motor Rust `kpe-geometry` y una experiencia de usuario estricta orientada hacia la mecanización.
 
 ---
 
-## 1. Solucionador Exacto vía Newton-Raphson (Eliminación del Descenso de Gradiente)
-*   **Archivos a Modificar:** 
-    *   `crates/kpe-geometry/src/sketch/solver.rs`
-*   **Acción Requerida:** El motor numérico iterativo basado en perturbaciones (derivadas por diferencia finita) y avance por gradiente debe eliminarse en favor de un sistema de ecuaciones no lineales. Se debe codificar el desarrollo analítico del modelo matemático y utilizar el método multivariado recursivo algorítmico **Newton-Raphson** (o Levenberg-Marquardt), pre-computando la Matriz Jacobiana Analítica.
-*   **Beneficio Mantenibilidad / Técnico:** Se extirpa masivamente el estrangulamiento de divergencia por "stiffness" matemático, lo que significa que el CAD jamás se oscilará de manera eterna por desequilibrio en las escalas y longitudes. Convergencia sub-milisegundo precisa en O(1) relativo al salto, posibilitando bosquejos hiper-condensados.
+## FASE 1: NÚCLEO MATEMÁTICO Y MANEJO DE RESTRICCIONES (CONSTRAINT SOLVER)
 
-## 2. Retroalimentación Topológica mediante Grados de Libertad (DoF) Visuales
-*   **Archivos a Modificar:** 
-    *   `apps/desktop/src/sketch_editor/ui.rs` (Para el rendering diferencial a nivel usuario)
-    *   `apps/desktop/src/sketch_editor/state.rs`
-    *   `crates/kpe-geometry/src/sketch/solver.rs` (Para exportar la clasificación de nodos y estado matricial)
-*   **Acción Requerida:** El backend matemático debe dictaminar si los enlaces de una figura alcanzan la inmovilización paramétrica para reflejar de forma óptica cómo las matemáticas visualizan el mundo interno.
-    *   Contorno **Azul/Claro**: Grados libres a movimiento.
-    *   Contorno **Negro/Oscuro**: Geometría anclada puramente (Fully Constrained).
-    *   Contorno **Rojo**: Bloqueo o bucle absurdo paramétrico (Ej. Dos círculos forzados concéntricos sin pertenecer).
-*   **Beneficio Mantenibilidad / Técnico:** Saca del oscurantismo visual al usuario. La app previene en caliente que los diseñadores cometan crímenes de proyección sin enterarse, erradicando un factor inmenso de bugs y falsas quejas sobre el software.
+### 1.1 Solucionador Analítico Exacto (Newton-Raphson)
+El solver empírico o de gradiente simple será descartado. Se construirá un analizador matricial multivariado capaz de asimilar matrices Jacobianas para la resolución no lineal de restricciones geométricas. 
+* **Objetivo:** Lograr convergencia y estabilización geométrica en escala de microsegundos con precisión de doble flotante, garantizando que modelos altamente complejos no entren en espirales de oscilación o fallas de borde.
 
-## 3. Barras de Tareas para Inyección de Restricciones Explícitas Acopladas
-*   **Archivos a Modificar:** 
-    *   `apps/desktop/src/sketch_editor/ui.rs`
-    *   `apps/desktop/src/sketch_editor/input.rs`
-*   **Acción Requerida:** Instalar submenús flotantes Egui reactivos o botones fijos permanentes en la barra superior capaces de inyectar imposiciones geométricas no orgánicas. Tras activar en el modelo `Select` (input ciego) variables o entidades discordantes, el UI exigirá opciones algorítmicas combinatorias exclusivas (Tangencial, Concordancia, Fijación Fija X/Y, Concetricidad).
-*   **Beneficio Mantenibilidad / Técnico:** Transforma la consola de dibujo digital desde un "Canvas pintable autoadaptativo" al status absoluto de Bocetador Mecánico Mecanizado.
+### 1.2 Diccionario Global de Restricciones Rígidas
+El motor Paramétrico asimilará en su estructura un catálogo axiomático inquebrantable de relaciones bidimensionales:
+* Tolerancias de posición: *Coincidencia, Punto medio, Colinealidad.*
+* Tolerancias de orientación: *Paralelismo, Perpendicularidad.*
+* Tolerancias de magnitud: *Longitud igual, Radio igual/Corradios.*
+* Tolerancias formales: *Tangencia continua cruzada (Línea-Arco, Arco-Arco), Concentricidad.*
 
-## 4. Estructuras de Aceleración Espacial frente a Búsqueda Geométrica Ciega
-*   **Archivos a Modificar:** 
-    *   `apps/desktop/src/sketch_editor/input.rs` (Gestor raycast de clicks)
-    *   `crates/kpe-geometry/src/sketch/entities.rs` (Lugar para montar el espacio dimensional indexado)
-*   **Acción Requerida:** Erradicar radicalmente la fuerza bruta lineal O(n) (es decir, re-iterar arrays de puntos, arcos, y curvas indiscriminadamente ante eventos rápidos o leves paneos de puntero de Mouse). Reemplazar con modelado topológico anidado tal como un Árbol Binario de Envolvencia **BVH (Bounding Volume Hierarchy)** o indexación **QuadTree**.
-*   **Beneficio Mantenibilidad / Técnico:** Resistencia masiva algorítmica al ahogamiento de CPU. La velocidad de percepción de selección no decaerá sin importar si el fichero industrial escala a cargar tableros que integren más de 15.000 curvas interpoladas en simultáneo en el mismo Canvas Paramétrico.
+### 1.3 Perfilado de Grados de Libertad y Semiótica Visual (DoF)
+El backend emitirá evaluaciones topológicas activas informando a la inferfaz Egui del estado termodinámico de las variables.
+* **Geometría Azul:** Grados libres descubiertos; la malla permite ser deformada orgánicamente con el ratón.
+* **Geometría Negra:** Restringida Completamente (Fully Constrained); anclada matemáticamente al origen espacial.
+* **Geometría Roja:** Conflictos de Condicionamiento (Over-constrained) o paradojas topológicas irreconciliables.
+
+---
+
+## FASE 2: MOTOR TOPOLÓGICO DE REGIONES Y DCEL
+
+### 2.1 Lista de Doble Arista y Grafo Planar (DCEL)
+El boceto dejará de existir como formas vectoriales vacías flotantes. Será gobernado por un estructurador estricto de topología. Todo arco y toda recta proyectados formarán colisiones algebraicas creando nodos fraccionados. Incesantemente las curvas cerrarán contornos perimetrales (Faces) permitiendo que cualquier conjunto intrincado sea particionado en celdillas atómicas detectables instantáneamente por un algorítmo caminador (*Graph Walker*).
+
+### 2.2 Inferencia de Paridad Automática de Agujeros (Holes vs Islands)
+Cuando se trace geometría anidada (ej. un círculo contenido nativamente inter-estructurado por un rectángulo), el compilador resolverá un test computacional tipo *Ray-Cast / Point-in-Polygon* dictaminando el árbol jerárquico. Las capas de profundidad alternarán implícitamente entre Región Sólida y Región Vacía, orquestando mallas paramétricas perfectamente perforadas.
+
+### 2.3 Autoridad de Relleno Transaccional del Usuario (Face Overrides)
+Conmutadores transaccionales locales por cada sub-polígono que se genere. El usuario seleccionará las islas orgánicas y aplicará override para que dejen de acatar las reglas Even-Odd paritarias y sean dictaminadas de forma forzada como entidades Sólidas, Huecas, o Transparentes a la hora del empuje dimensional 3D.
+
+---
+
+## FASE 3: DRAFTING PERFECTO DE NIVEL INDUSTRIAL
+
+### 3.1 Motor de Captura Exacta de Instancias (OSnap / Object Snap)
+El subsistema interceptará el plano focal trazando proyecciones desde el cursor hacia las ecuaciones matemáticas adyacentes para asegurar fijación nanométrica en:
+* *Extremos, Puntos Medios y Centros Analíticos.*
+* *Intersecciones Visuales y Aparentes.*
+* *Puntos Cuadrantes Circulares y Curvaturas Tangenciales Retardadas.*
+
+### 3.2 Display Dinámico Integral (Heads-Up Display - HUD)
+Supresión del "dibujo arrastrando". Junto a la mirilla principal se acoplarán flotadores (Widgets) interactivos nativos exigiendo las variables numéricas dimensionales. Al tipear cantidades como "50 mm" y presionar *Tab*, la magnitud actual queda trancada (locked), trasladando la energía condicional pura a enfocar la dirección o los grados polares del vector.
+
+### 3.3 Rastreo Magnético Ortogonal y Polar
+Mientras se orquesta la operación de despliegue dimensional, las guías proyectuales virtuales aparecerán en el lienzo cuando el cursor entre dentro del delta Epsilon permisible de ángulos críticos pre-programables por la manufactura espacial (0°, 30°, 45°, 90°, etc.), permitiendo fijación directa al plano constructivo.
+
+---
+
+## FASE 4: EXPULSIÓN DE CÓDIGO DIRECTO HACIA LA EXTRUSIÓN ACTIVA
+
+### 4.1 Deconstrucción Plástica / Push-Pull Modelado
+El flujo de usuario adoptará el comportamiento orgánico *SketchUp UX*. La varita detectora resaltará instantáneamente las topologías de las Caras (Faces DCEL). Una vez capturadas, el comando 3D no extruirá un "Dibujo General", sino que instanciará objetos tridimensionales basados en la semilla vectorial extraída.
+
+### 4.2 Proyección por Revestimientos Complejos de Extrusion, y Revolución (Sweeps & Revolves)
+Sincronización natural del árbol perimetral de bocetos 2D con los algoritmos booleanos del motor B-Rep/CSG profundo. Los ejes de construcción dibujados en el sketch 2D mutarán de forma instantánea a Pivotes Vectoriales sobre las caras anidadas detectadas, facilitando revoluciones industriales (Revolves) sobre centros abstractos con simetrías matemáticas aseguradas.
+
+---
+
+## FASE 5: ARQUITECTURA DE RENDIMIENTO RADICAL E INMUTABILIDAD
+
+### 5.1 Jerarquía Estructural BVH (Bounding Volume Hierarchy)
+La selección ciega O(n) sobre todos los subelementos matemáticos pasará a ser O(log n). El motor 2D empaquetará todas las cuerdas referenciales en cajones de encapsulación binarios espacialmente referenciados indexando instantáneamente miles de geometrías concurrentes, asegurando inercia inamovible frente al consumo intensivo de CPU.
+
+### 5.2 Purga de la Interfaz UI a Capa Estéril (Domain Segregation)
+Todo el sistema listado reside y residirá pura y exclusivamente encapsulado en los procesadores del *Crate* principal `kpe-geometry`. Egui, y cualquier tecnología de Frontend anexa, estarán rebajadas e instruidas mediante directivas explícitas únicamente a pintar por transferencia de estados inmutables y capturar comandos; sellando así la arquitectura AAA donde ningún aspecto topológico, relacional, matricial o lógico pueda sufrir fugas entre dominios computacionales.

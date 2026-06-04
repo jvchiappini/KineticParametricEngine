@@ -1,5 +1,7 @@
 # KPE Architecture — Diagrams
 
+> **Note (June 2026):** The primary user workflow has shifted from 2D-sketch → extrude to SketchUp-style direct 3D manipulation via the `BuildTool` system. The 2D sketch engine remains available for complex parametric profiles. See ADR-010 and `wiki/desktop/ARCHITECTURE.md` for the updated system graph.
+
 ## Layer Diagram
 
 ```
@@ -106,7 +108,43 @@ KPERecipe (JSON)
               (merged into scene tree, passes to CSG)
 ```
 
-## Primary Data Flow
+## Primary Data Flow (Updated June 2026)
+
+### Flow A — BuildTool (Direct 3D, Primary)
+```
+User clicks in 3D viewport with active BuildTool
+           │
+           ▼
+   build_tool::rect_tool_system (e.g.)
+   ├── 1. Infer construction plane (face normal or ground)
+   ├── 2. Create GeometryNode { BoxDef / CylinderDef }
+   └── 3. AppState::execute(AddFeatureCommand)
+                │
+                ▼
+         CommandHistory::execute(cmd)
+         ├── cmd.execute(scene)
+         ├── document.apply_scene(gs)
+         ├── document.evaluate_all()
+         └── state.mark_dirty()
+                │
+                ▼
+         sync::sync_meshes → Bevy GPU mesh update
+```
+
+### Flow A2 — PushPull (Face Extrusion)
+```
+User clicks face with PushPull tool → drag
+           │
+           ▼
+   face_pick_system: ray-triangle → face selection
+   push_pull_drag_system: signed distance → extrude_face()
+           │
+           ▼
+   state.document.evaluated.meshes (direct mutation)
+   state.mark_dirty() → sync_meshes updates Bevy mesh
+```
+
+### Flow B — Traditional Parametric (2D Sketch → Extrude)
 
 ```
 User edits parameters in UI / loads recipe JSON

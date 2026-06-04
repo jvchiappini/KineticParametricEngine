@@ -16,12 +16,17 @@ use crate::mesh::MeshBuilder;
 #[derive(Debug, Clone)]
 pub struct SceneGeometry {
     pub meshes: HashMap<String, TriangleMesh>,
+    /// Content-based hashes for each evaluated node, used for cache
+    /// invalidation on subsequent evaluations.  Only populated for
+    /// primitive types (Box, Cylinder, Sphere) that support hashing.
+    pub hashes: HashMap<String, u64>,
 }
 
 impl SceneGeometry {
     pub fn new() -> Self {
         Self {
             meshes: HashMap::new(),
+            hashes: HashMap::new(),
         }
     }
 
@@ -48,7 +53,7 @@ pub fn evaluate_scene(
     old_meshes: &HashMap<String, TriangleMesh>,
 ) -> SceneGeometry {
     let mut meshes = HashMap::new();
-    let mut _new_hashes = HashMap::new();
+    let mut new_hashes = HashMap::new();
     let joints = &recipe.joints;
     let full_scene = &recipe.scene;
 
@@ -59,28 +64,42 @@ pub fn evaluate_scene(
         &world_matrices,
         joints,
         &mut meshes,
-        &mut _new_hashes,
+        &mut new_hashes,
         old_hashes,
         old_meshes,
         full_scene,
     );
 
-    SceneGeometry { meshes }
+    SceneGeometry { meshes, hashes: new_hashes }
 }
 
 /// Evaluate a single node by ID within the full recipe context.
+///
+/// Returns `None` for container nodes (Compound/Assembly) because they
+/// don't own geometry — their children are evaluated individually by
+/// `collect_evaluated_meshes`.  Generating a merged mesh here would
+/// create a duplicate that shows alongside the children's individual
+/// meshes, which is especially problematic after the parent transform
+/// changes and only this node gets re-evaluated.
 pub fn evaluate_node(
     node_id: &str,
     recipe: &KPERecipe,
     old_hashes: &HashMap<String, u64>,
 ) -> Option<TriangleMesh> {
     let node = find_node(&recipe.scene, node_id)?;
-    let new_hash = hash_geometry_node(node);
+
+    // Skip containers — they merge children internally.
+    // Individual children are evaluated separately.
+    if matches!(node.node_type, GeometryNodeType::Compound | GeometryNodeType::Assembly(_)) {
+        return None;
+    }
+
+    let world_matrices = compute_world_matrices(&recipe.scene, DMat4::IDENTITY);
+    let new_hash = combined_hash(node, &world_matrices);
     let old_hash = old_hashes.get(node_id).copied().unwrap_or(0);
     if new_hash != 0 && new_hash == old_hash {
         return None; // unchanged — caller should keep old mesh
     }
-    let world_matrices = compute_world_matrices(&recipe.scene, DMat4::IDENTITY);
     let mesh = build_mesh_with_joint_context(node, &recipe.scene, &world_matrices, &recipe.joints);
     Some(mesh)
 }
@@ -109,6 +128,53 @@ fn local_matrix(tf: &Option<TransformOp>) -> DMat4 {
 
             if let Some(scale) = &t.scale {
                 mat = mat * DMat4::from_scale(glam::DVec3::new(scale[0], scale[1], scale[2]));
+            }
+
+            // Apply pivot-relative transform steps in order.
+            for pv in &t.pivots {
+                match pv.space {
+                    kpe_schema::geometry::PivotSpace::Local => {
+                        // Local: M * T(pivot) * T(pv_trans) * R * S * T(-pivot)
+                        let to_p = DMat4::from_translation(glam::DVec3::new(pv.pivot[0], pv.pivot[1], pv.pivot[2]));
+                        let from_p = DMat4::from_translation(glam::DVec3::new(-pv.pivot[0], -pv.pivot[1], -pv.pivot[2]));
+                        mat = mat * to_p;
+                        if let Some(tv) = &pv.translation {
+                            mat = mat * DMat4::from_translation(glam::DVec3::new(tv[0], tv[1], tv[2]));
+                        }
+                        if let Some(rot) = &pv.rotation {
+                            let rx = DMat4::from_rotation_x(rot[0].to_radians());
+                            let ry = DMat4::from_rotation_y(rot[1].to_radians());
+                            let rz = DMat4::from_rotation_z(rot[2].to_radians());
+                            mat = mat * rz * ry * rx;
+                        }
+                        if let Some(scale) = &pv.scale {
+                            mat = mat * DMat4::from_scale(glam::DVec3::new(scale[0], scale[1], scale[2]));
+                        }
+                        mat = mat * from_p;
+                    }
+                    kpe_schema::geometry::PivotSpace::World => {
+                        // World: M' = T(effective) * R * S * T(-effective) * M
+                        let effective = [
+                            pv.pivot[0] + pv.translation.unwrap_or([0.0; 3])[0],
+                            pv.pivot[1] + pv.translation.unwrap_or([0.0; 3])[1],
+                            pv.pivot[2] + pv.translation.unwrap_or([0.0; 3])[2],
+                        ];
+                        let to_p = DMat4::from_translation(glam::DVec3::new(effective[0], effective[1], effective[2]));
+                        let from_p = DMat4::from_translation(glam::DVec3::new(-effective[0], -effective[1], -effective[2]));
+                        let mut pivot_mat = to_p;
+                        if let Some(rot) = &pv.rotation {
+                            let rx = DMat4::from_rotation_x(rot[0].to_radians());
+                            let ry = DMat4::from_rotation_y(rot[1].to_radians());
+                            let rz = DMat4::from_rotation_z(rot[2].to_radians());
+                            pivot_mat = pivot_mat * rz * ry * rx;
+                        }
+                        if let Some(scale) = &pv.scale {
+                            pivot_mat = pivot_mat * DMat4::from_scale(glam::DVec3::new(scale[0], scale[1], scale[2]));
+                        }
+                        pivot_mat = pivot_mat * from_p;
+                        mat = pivot_mat * mat;
+                    }
+                }
             }
 
             mat
@@ -153,6 +219,52 @@ pub fn hash_geometry_node(node: &GeometryNode) -> u64 {
         }
         _ => return 0,
     }
+    // Include the transform in the hash so that changing scale / rotation /
+    // position triggers a mesh rebuild with the new baked world matrix.
+    hash_transform(&node.transform).hash(&mut s);
+    s.finish()
+}
+
+/// Hash the optional `TransformOp` so that transform changes invalidate the cache.
+fn hash_transform(tf: &Option<TransformOp>) -> u64 {
+    let mut s = DefaultHasher::new();
+    match tf {
+        Some(t) => {
+            if let Some(trans) = &t.translation {
+                trans.iter().for_each(|v| v.to_bits().hash(&mut s));
+            } else {
+                0u64.hash(&mut s);
+            }
+            if let Some(rot) = &t.rotation {
+                rot.iter().for_each(|v| v.to_bits().hash(&mut s));
+            } else {
+                0u64.hash(&mut s);
+            }
+            if let Some(scale) = &t.scale {
+                scale.iter().for_each(|v| v.to_bits().hash(&mut s));
+            } else {
+                0u64.hash(&mut s);
+            }
+            // Hash each pivot transform
+            for pv in &t.pivots {
+                pv.id.hash(&mut s);
+                pv.space.hash(&mut s);
+                pv.pivot.iter().for_each(|v| v.to_bits().hash(&mut s));
+                if let Some(tv) = &pv.translation {
+                    tv.iter().for_each(|v| v.to_bits().hash(&mut s));
+                }
+                if let Some(rot) = &pv.rotation {
+                    rot.iter().for_each(|v| v.to_bits().hash(&mut s));
+                }
+                if let Some(scale) = &pv.scale {
+                    scale.iter().for_each(|v| v.to_bits().hash(&mut s));
+                }
+            }
+        }
+        None => {
+            0u64.hash(&mut s);
+        }
+    }
     s.finish()
 }
 
@@ -168,16 +280,34 @@ fn hash_cylinder_def(c: &CylinderDef) -> u64 {
     let mut s = DefaultHasher::new();
     c.radius.to_bits().hash(&mut s);
     c.height.to_bits().hash(&mut s);
+    c.segments.hash(&mut s);
     s.finish()
 }
 
 fn hash_sphere_def(sp: &SphereDef) -> u64 {
     let mut s = DefaultHasher::new();
     sp.radius.to_bits().hash(&mut s);
+    sp.segments.hash(&mut s);
     s.finish()
 }
 
 // ── Recursive mesh collection ─────────────────────────────────────
+
+/// Combine a node's geometry hash with its world matrix hash so that
+/// ancestor transform changes (Group/Assembly rotation/scale/translation)
+/// invalidate the cache for all descendant nodes.
+pub fn combined_hash(node: &GeometryNode, world_matrices: &HashMap<String, DMat4>) -> u64 {
+    let geom_hash = hash_geometry_node(node);
+    if geom_hash == 0 {
+        return 0;
+    }
+    let mut s = std::collections::hash_map::DefaultHasher::new();
+    geom_hash.hash(&mut s);
+    if let Some(wm) = world_matrices.get(&node.id) {
+        wm.to_cols_array().iter().for_each(|v| v.to_bits().hash(&mut s));
+    }
+    s.finish()
+}
 
 fn collect_evaluated_meshes(
     node: &GeometryNode,
@@ -190,10 +320,10 @@ fn collect_evaluated_meshes(
     full_scene: &GeometryNode,
 ) {
     let is_container =
-        matches!(node.node_type, GeometryNodeType::Compound | GeometryNodeType::Assembly(_));
+        matches!(node.node_type, GeometryNodeType::Compound | GeometryNodeType::Assembly(_) | GeometryNodeType::JointGroup);
 
     if !is_container {
-        let new_hash = hash_geometry_node(node);
+        let new_hash = combined_hash(node, world_matrices);
         let old_hash = old_hashes.get(&node.id).copied().unwrap_or(0);
         if new_hash != 0 && new_hash == old_hash {
             if let Some(old_mesh) = old_meshes.get(&node.id) {
@@ -224,14 +354,39 @@ fn collect_evaluated_meshes(
 
 // ── Joint-aware mesh building ─────────────────────────────────────
 
+/// Walk up from `node_id` to find if any ancestor is the child of a joint.
+///
+/// This enables **group joints**: when a joint's `child_id` points to a
+/// container (Compound / JointGroup / Assembly), all descendant leaf nodes
+/// inherit the joint transform.
+fn find_applicable_joint<'a>(
+    node_id: &str,
+    joints: &'a [Joint],
+    full_scene: &'a GeometryNode,
+) -> Option<&'a Joint> {
+    // Check direct match first
+    if let Some(joint) = joints.iter().find(|j| j.child_id == node_id) {
+        return Some(joint);
+    }
+    // Walk up ancestors (exclude root since it has no parent)
+    let mut current = node_id;
+    loop {
+        let parent = find_parent(full_scene, current)?;
+        if let Some(joint) = joints.iter().find(|j| j.child_id == parent.id) {
+            return Some(joint);
+        }
+        current = &parent.id;
+    }
+}
+
 fn build_mesh_with_joint_context(
     node: &GeometryNode,
     full_scene: &GeometryNode,
     world_matrices: &HashMap<String, DMat4>,
     joints: &[Joint],
 ) -> TriangleMesh {
-    // Check if this node is a child in a joint
-    if let Some(joint) = joints.iter().find(|j| j.child_id == node.id) {
+    // Check if this node (or an ancestor container) is a joint child
+    if let Some(joint) = find_applicable_joint(&node.id, joints, full_scene) {
         if let Some(parent_world) = world_matrices.get(&joint.parent_id) {
             let engine = JointEngine::new();
             let joint_matrix = engine.compute_joint_matrix(joint);
@@ -257,15 +412,29 @@ fn build_mesh_with_joint_context(
         }
     }
 
-    // No joint: normal evaluation
-    build_mesh_from_node_in_context(node, full_scene)
+    // No joint: normal evaluation with parent transform propagation
+    build_mesh_from_node_in_context(node, full_scene, world_matrices)
 }
 
-fn build_mesh_from_node_in_context(node: &GeometryNode, full_scene: &GeometryNode) -> TriangleMesh {
+/// Build a mesh for a leaf node, propagating the parent's world transform
+/// so that ancestor transforms (Group/Assembly) are correctly applied.
+fn build_mesh_from_node_in_context(
+    node: &GeometryNode,
+    full_scene: &GeometryNode,
+    world_matrices: &HashMap<String, DMat4>,
+) -> TriangleMesh {
+    // Find the parent's world matrix so ancestor containers (Group, Assembly)
+    // with transforms are correctly propagated to leaf geometry.
+    let parent_world = find_parent(full_scene, &node.id)
+        .and_then(|parent| world_matrices.get(&parent.id))
+        .copied()
+        .unwrap_or(DMat4::IDENTITY);
+
     let mut sketches = HashMap::new();
     crate::mesh::collect_sketches(full_scene, &mut sketches);
     let builder = MeshBuilder::new().with_sketches(sketches);
-    builder.build_from_node(node)
+    // Pass parent_world so build_with_transform computes: parent_world * local
+    builder.build_with_transform(node, parent_world)
 }
 
 /// Build a mesh for a single node with joint context (no scene tree needed).

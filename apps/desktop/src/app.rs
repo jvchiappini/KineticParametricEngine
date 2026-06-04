@@ -8,6 +8,28 @@ use kpe_parametric::commands::features::ArrayParams;
 use kpe_schema::geometry::GeometryNode;
 use kpe_schema::joint::JointType;
 
+/// Where to insert a dragged node relative to the hover target.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InsertPosition {
+    Before,
+    AsChild,
+    After,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SnappingConfig {
+    pub endpoint: bool,
+    pub midpoint: bool,
+    pub center: bool,
+    pub axes: bool,
+}
+
+impl Default for SnappingConfig {
+    fn default() -> Self {
+        Self { endpoint: true, midpoint: true, center: true, axes: true }
+    }
+}
+
 #[derive(Resource)]
 pub struct AppState {
     pub document: Document,
@@ -22,10 +44,18 @@ pub struct AppState {
     pub show_joint_dialog: bool,
     pub show_about_dialog: bool,
     pub new_joint_type: JointType,
-    pub new_joint_pivot: [f64; 3],
-    pub new_joint_axis: [f64; 3],
+    pub new_joint_parent_frame: kpe_schema::joint::JointFrame,
+    pub new_joint_child_frame: kpe_schema::joint::JointFrame,
     pub array_params: ArrayParams,
     pub pending_view_preset: Option<u8>,
+    pub snaps: SnappingConfig,
+    // ── Drag-and-drop state ──
+    /// Node currently being dragged (set on drag_started, cleared on drag_released).
+    pub drag_source: Option<String>,
+    /// Node currently hovered by the drag cursor, if any.
+    pub drag_hover: Option<String>,
+    /// Insert position relative to the hovered node.
+    pub drag_position: InsertPosition,
 }
 
 impl AppState {
@@ -43,11 +73,15 @@ impl AppState {
             show_chamfer_dialog: false,
             show_joint_dialog: false,
             show_about_dialog: false,
-            new_joint_type: JointType::Revolute,
-            new_joint_pivot: [0.0; 3],
-            new_joint_axis: [0.0, 1.0, 0.0],
+            new_joint_type: JointType::Revolute { axis: [0.0, 1.0, 0.0] },
+            new_joint_parent_frame: kpe_schema::joint::JointFrame::default(),
+            new_joint_child_frame: kpe_schema::joint::JointFrame::default(),
             array_params: ArrayParams::default(),
             pending_view_preset: None,
+            snaps: SnappingConfig::default(),
+            drag_source: None,
+            drag_hover: None,
+            drag_position: InsertPosition::After,
         }
     }
 
@@ -61,6 +95,7 @@ impl AppState {
         let mut gs = self.document.to_scene();
         self.history.undo(&mut gs);
         self.document.apply_scene(gs);
+        self.document.evaluate_all();
         self.mark_dirty();
     }
 
@@ -69,6 +104,7 @@ impl AppState {
         let mut gs = self.document.to_scene();
         self.history.redo(&mut gs);
         self.document.apply_scene(gs);
+        self.document.evaluate_all();
         self.mark_dirty();
     }
 
@@ -77,6 +113,7 @@ impl AppState {
         let mut gs = self.document.to_scene();
         self.history.execute(cmd, &mut gs);
         self.document.apply_scene(gs);
+        self.document.evaluate_all();
         self.mark_dirty();
     }
 }
@@ -98,8 +135,8 @@ pub fn ui_system(
         return;
     }
     ui::toolbar::show(&mut contexts, &mut *state);
-    ui::scene_tree::show(&mut contexts, &mut *state);
-    ui::properties::show(&mut contexts, &mut *state);
+    ui::scene_tree::show_dialogs(&mut contexts, &mut *state);
+    ui::default_tray::show(&mut contexts, &mut *state);
 
     if state.show_about_dialog {
         let ctx = contexts.ctx_mut();

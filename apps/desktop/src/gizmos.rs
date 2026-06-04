@@ -1,7 +1,9 @@
 use bevy::prelude::*;
 use crate::app::AppState;
 use crate::sketch_editor::SketchEditorState;
-use kpe_schema::geometry::{GeometryNode, TransformOp};
+use kpe_schema::geometry::{GeometryNode, PivotSpace, TransformOp};
+use kpe_geometry::evaluator::find_node;
+use glam::DMat4;
 
 const AXIS_LENGTH: f32 = 1.5;
 const HIT_RADIUS: f32 = 0.2;
@@ -39,6 +41,7 @@ pub fn gizmo_render_system(
 
     let origin = node_position(&state.document.recipe.scene, &sel).unwrap_or(Vec3::ZERO);
 
+    // ── Translation gizmo ─────────────────────────────────────────
     let colors = [Color::srgb(1.0, 0.2, 0.2), Color::srgb(0.2, 1.0, 0.2), Color::srgb(0.2, 0.2, 1.0)];
     let axes = [Vec3::X, Vec3::Y, Vec3::Z];
 
@@ -52,6 +55,80 @@ pub fn gizmo_render_system(
         let end = origin + axes[hi] * AXIS_LENGTH;
         gizmos.line(origin, end, Color::WHITE);
         gizmos.sphere(end, 0.12, Color::WHITE);
+    }
+
+    // ── Pivot markers ─────────────────────────────────────────────
+    draw_pivot_markers(&mut gizmos, &state.document.recipe.scene, &sel);
+}
+
+/// Draw small cross-hair markers at each pivot position for the selected node.
+fn draw_pivot_markers(gizmos: &mut Gizmos, root: &GeometryNode, node_id: &str) {
+    let node = match find_node(root, node_id) {
+        Some(n) => n,
+        None => return,
+    };
+    let tf = match &node.transform {
+        Some(t) => t,
+        None => return,
+    };
+    if tf.pivots.is_empty() {
+        return;
+    }
+
+    // Compute the node's world-space origin (translation component of accumulated matrix).
+    // We build a minimal local matrix from the base transform.
+    let mut base_mat = DMat4::IDENTITY;
+    if let Some(trans) = &tf.translation {
+        base_mat = DMat4::from_translation(glam::DVec3::new(trans[0], trans[1], trans[2]));
+    }
+    if let Some(rot) = &tf.rotation {
+        let rx = DMat4::from_rotation_x(rot[0].to_radians());
+        let ry = DMat4::from_rotation_y(rot[1].to_radians());
+        let rz = DMat4::from_rotation_z(rot[2].to_radians());
+        base_mat = base_mat * rz * ry * rx;
+    }
+    if let Some(scale) = &tf.scale {
+        base_mat = base_mat * DMat4::from_scale(glam::DVec3::new(scale[0], scale[1], scale[2]));
+    }
+
+    let pivot_color = Color::srgb(1.0, 0.8, 0.0); // gold
+
+    for pv in &tf.pivots {
+        let world_pos = match pv.space {
+            PivotSpace::Local => {
+                // Local pivot: position = base_mat * pivot_point
+                let p = base_mat.transform_point3(glam::DVec3::new(pv.pivot[0], pv.pivot[1], pv.pivot[2]));
+                Vec3::new(p.x as f32, p.y as f32, p.z as f32)
+            }
+            PivotSpace::World => {
+                // World pivot: position is the pivot directly in world coords
+                // plus its translation
+                let eff_x = pv.pivot[0] + pv.translation.unwrap_or([0.0; 3])[0];
+                let eff_y = pv.pivot[1] + pv.translation.unwrap_or([0.0; 3])[1];
+                let eff_z = pv.pivot[2] + pv.translation.unwrap_or([0.0; 3])[2];
+                Vec3::new(eff_x as f32, eff_y as f32, eff_z as f32)
+            }
+        };
+
+        // Small cross-hair
+        let cross_size = 0.3;
+        gizmos.line(
+            world_pos - Vec3::X * cross_size,
+            world_pos + Vec3::X * cross_size,
+            pivot_color,
+        );
+        gizmos.line(
+            world_pos - Vec3::Y * cross_size,
+            world_pos + Vec3::Y * cross_size,
+            pivot_color,
+        );
+        gizmos.line(
+            world_pos - Vec3::Z * cross_size,
+            world_pos + Vec3::Z * cross_size,
+            pivot_color,
+        );
+        // Small sphere at center
+        gizmos.sphere(world_pos, 0.06, pivot_color);
     }
 }
 
@@ -212,6 +289,7 @@ fn apply_translation(node: &mut GeometryNode, target: &str, delta: Vec3) {
         translation: Some([0.0, 0.0, 0.0]),
         rotation: None,
         scale: None,
+        pivots: Vec::new(),
     });
     let t = tf.translation.get_or_insert_with(|| [0.0, 0.0, 0.0]);
     t[0] += delta.x as f64;

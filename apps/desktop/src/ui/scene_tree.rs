@@ -1,25 +1,89 @@
 use std::collections::HashSet;
 use bevy_egui::{egui, EguiContexts};
-use crate::app::AppState;
+use crate::app::{AppState, InsertPosition};
 use crate::{commands, feature_commands};
+use kpe_parametric::MoveNodeCommand;
 use kpe_schema::joint::JointType;
 use kpe_schema::geometry::{GeometryNode, GeometryNodeType};
 
-pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
-    egui::SidePanel::left("scene_tree")
-        .resizable(true)
-        .default_width(220.0)
-        .show(contexts.ctx_mut(), |ui| {
-            ui.add_space(8.0);
-            ui.heading("Scene");
-            ui.separator();
-            ui.add_space(4.0);
+const DROP_LINE_HEIGHT: f32 = 2.0;
+const DROP_HIGHLIGHT_COLOR: egui::Color32 = egui::Color32::from_rgb(100, 180, 255);
 
-            let mut delete_target: Option<String> = None;
+pub fn show_content(ui: &mut egui::Ui, state: &mut AppState) {
+    let mut delete_target: Option<String> = None;
+
+            // Drag-and-drop state carried through tree traversal
+            let mut drag_ended = false;
+            let mut drag_source: Option<String> = None;  // local copy
+            let mut local_drag_hover: Option<String> = None;
+            let mut local_drag_position = InsertPosition::After;
+
+            // If a drag is already in progress (from previous frame), restore it
+            if state.drag_source.is_some() {
+                drag_source = state.drag_source.clone();
+                // Reset hover each frame — will be recalculated
+                state.drag_hover = None;
+            }
+
             egui::ScrollArea::vertical().id_salt("scene_tree_scroll").show(ui, |ui| {
                 let node = &state.document.recipe.scene;
-                tree_node(ui, node, &mut state.document.selection, &mut state.document.multi_selection, &mut state.pending_sketch_edit, &mut delete_target, &mut state.document.hidden_nodes);
+                tree_node(
+                    ui, node, "",
+                    &mut state.document.selection,
+                    &mut state.document.multi_selection,
+                    &mut state.document.pivot_selection,
+                    &mut state.pending_sketch_edit,
+                    &mut delete_target,
+                    &mut state.document.hidden_nodes,
+                    &mut drag_source,
+                    &mut local_drag_hover,
+                    &mut local_drag_position,
+                    &mut drag_ended,
+                );
             });
+
+            // ── Drop resolution ──
+            if drag_ended {
+                if let (Some(ref src), Some(ref hover)) = (drag_source, local_drag_hover) {
+                    if src != hover {
+                        // Prevent dropping onto a descendant (would create a cycle)
+                        let scene = &state.document.recipe.scene;
+                        let cannot_drop = is_descendant_of(scene, src, hover)
+                            // Before/After Root is invalid — Root has no parent
+                            || (hover == "Root" && local_drag_position != InsertPosition::AsChild);
+                        if !cannot_drop {
+                            let (target_parent_id, insert_index) = compute_drop_params(
+                                scene, hover, local_drag_position,
+                            );
+                            // Only execute if the source would actually move
+                            if let (Some(tpid), Some(idx)) = (target_parent_id, insert_index) {
+                                if tpid != *src || {
+                                    is_valid_index(&state.document.recipe.scene, src, &tpid, idx)
+                                } {
+                                    let cmd = MoveNodeCommand {
+                                        source_id: src.clone(),
+                                        target_parent_id: tpid,
+                                        insert_index: idx,
+                                        old_parent_id: String::new(), // filled on execute
+                                        old_index: 0,
+                                    };
+                                    state.execute(Box::new(cmd));
+                                }
+                            }
+                        }
+                    }
+                }
+                // Clean up drag state
+                state.drag_source = None;
+                state.drag_hover = None;
+            } else {
+                // Persist drag state for next frame
+                if drag_source.is_some() {
+                    state.drag_source = drag_source.clone();
+                    state.drag_hover = local_drag_hover;
+                    state.drag_position = local_drag_position;
+                }
+            }
 
             ui.separator();
             ui.label("Joints");
@@ -95,8 +159,9 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                     state.show_joint_dialog = true;
                 }
             });
-        });
+}
 
+pub fn show_dialogs(contexts: &mut EguiContexts, state: &mut AppState) {
     if state.show_array_dialog {
         let params_clone = state.array_params.clone();
         egui::Window::new("Array")
@@ -197,23 +262,39 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
                 ui.label("Select parent and child nodes, then configure:");
                 ui.separator();
                 let mut jt = state.new_joint_type.clone();
-                ui.horizontal(|ui| { ui.label("Type:"); ui.selectable_value(&mut jt, JointType::Revolute, "Revolute"); });
-                ui.horizontal(|ui| { ui.selectable_value(&mut jt, JointType::Prismatic, "Prismatic"); });
-                ui.horizontal(|ui| { ui.selectable_value(&mut jt, JointType::Fixed, "Fixed"); });
-                ui.horizontal(|ui| { ui.selectable_value(&mut jt, JointType::Ball, "Ball"); });
-                state.new_joint_type = jt;
-
                 ui.horizontal(|ui| {
-                    ui.label("Pivot:");
-                    ui.add(egui::DragValue::new(&mut state.new_joint_pivot[0]).speed(0.1));
-                    ui.add(egui::DragValue::new(&mut state.new_joint_pivot[1]).speed(0.1));
-                    ui.add(egui::DragValue::new(&mut state.new_joint_pivot[2]).speed(0.1));
+                    ui.label("Type:");
+                    ui.selectable_value(&mut jt, JointType::Revolute { axis: [0.0, 1.0, 0.0] }, "Revolute");
                 });
                 ui.horizontal(|ui| {
-                    ui.label("Axis:");
-                    ui.add(egui::DragValue::new(&mut state.new_joint_axis[0]).speed(0.1));
-                    ui.add(egui::DragValue::new(&mut state.new_joint_axis[1]).speed(0.1));
-                    ui.add(egui::DragValue::new(&mut state.new_joint_axis[2]).speed(0.1));
+                    ui.selectable_value(&mut jt, JointType::Prismatic { axis: [1.0, 0.0, 0.0] }, "Prismatic");
+                });
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut jt, JointType::Fixed, "Fixed");
+                });
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut jt, JointType::Ball, "Ball");
+                    ui.selectable_value(&mut jt, JointType::Cylindrical { axis: [0.0, 1.0, 0.0] }, "Cylindrical");
+                });
+                state.new_joint_type = jt;
+
+                ui.label("Parent Frame (position):");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut state.new_joint_parent_frame.position[0]).speed(0.1).prefix("x:"));
+                    ui.add(egui::DragValue::new(&mut state.new_joint_parent_frame.position[1]).speed(0.1).prefix("y:"));
+                    ui.add(egui::DragValue::new(&mut state.new_joint_parent_frame.position[2]).speed(0.1).prefix("z:"));
+                });
+                ui.label("Parent Frame (orientation °):");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut state.new_joint_parent_frame.orientation[0]).speed(1.0).prefix("rx:"));
+                    ui.add(egui::DragValue::new(&mut state.new_joint_parent_frame.orientation[1]).speed(1.0).prefix("ry:"));
+                    ui.add(egui::DragValue::new(&mut state.new_joint_parent_frame.orientation[2]).speed(1.0).prefix("rz:"));
+                });
+                ui.label("Child Frame (position):");
+                ui.horizontal(|ui| {
+                    ui.add(egui::DragValue::new(&mut state.new_joint_child_frame.position[0]).speed(0.1).prefix("x:"));
+                    ui.add(egui::DragValue::new(&mut state.new_joint_child_frame.position[1]).speed(0.1).prefix("y:"));
+                    ui.add(egui::DragValue::new(&mut state.new_joint_child_frame.position[2]).speed(0.1).prefix("z:"));
                 });
                 ui.separator();
                 if ui.button("Create Joint").clicked() {
@@ -229,19 +310,46 @@ pub fn show(contexts: &mut EguiContexts, state: &mut AppState) {
 
 fn joint_type_name(jt: &JointType) -> &'static str {
     match jt {
-        JointType::Revolute => "Revolute",
-        JointType::Prismatic => "Prismatic",
-        JointType::Fixed => "Fixed",
+        JointType::Revolute { .. } => "Revolute",
+        JointType::Prismatic { .. } => "Prismatic",
+        JointType::Cylindrical { .. } => "Cylindrical",
+        JointType::Universal { .. } => "Universal",
         JointType::Ball => "Ball",
+        JointType::Planar { .. } => "Planar",
+        JointType::Screw { .. } => "Screw",
+        JointType::Fixed => "Fixed",
+        JointType::SixDOF => "6DOF",
     }
 }
 
-fn tree_node(ui: &mut egui::Ui, node: &GeometryNode, selection: &mut Option<String>, multi_selection: &mut Vec<String>, pending_edit: &mut Option<String>, delete_target: &mut Option<String>, hidden_nodes: &mut HashSet<String>) {
+/// Render a single tree node and recurse into its children.
+///
+/// Parameters prefixed `drag_*` are used for drag-and-drop state.
+/// `drag_ended` is set to `true` when the drag source's response fires `drag_released()`.
+#[allow(clippy::too_many_arguments)]
+fn tree_node(
+    ui: &mut egui::Ui,
+    node: &GeometryNode,
+    _parent_id: &str,
+    selection: &mut Option<String>,
+    multi_selection: &mut Vec<String>,
+    _pivot_selection: &mut Option<(String, String)>,
+    pending_edit: &mut Option<String>,
+    delete_target: &mut Option<String>,
+    hidden_nodes: &mut HashSet<String>,
+    drag_source: &mut Option<String>,
+    drag_hover: &mut Option<String>,
+    drag_position: &mut InsertPosition,
+    drag_ended: &mut bool,
+) {
     let is_selected = selection.as_deref() == Some(&node.id) || multi_selection.contains(&node.id);
     let is_hidden = hidden_nodes.contains(&node.id);
+    let is_dragging = drag_source.is_some();
+    let is_drag_source = drag_source.as_deref() == Some(&node.id);
     let label = format!("{} ({})", node.id, node_type_name(&node.node_type));
 
-    let response = ui.horizontal(|ui| {
+    // ── Row: eye + label ──
+    let inner = ui.horizontal(|ui| {
         let eye_label = if is_hidden { "\u{25CB}" } else { "\u{25CF}" };
         let eye_response = ui.selectable_label(false, eye_label);
         if eye_response.clicked() {
@@ -253,9 +361,86 @@ fn tree_node(ui: &mut egui::Ui, node: &GeometryNode, selection: &mut Option<Stri
         }
         eye_response.on_hover_text(if is_hidden { "Show node" } else { "Hide node" });
 
-        ui.selectable_label(is_selected, &label)
-    }).inner;
-    if response.clicked() {
+        // Label with drag-and-drop support and selection highlight
+        let sense = if node.id != "Root" { egui::Sense::click_and_drag() } else { egui::Sense::click() };
+        let bg_fill = if is_selected { ui.visuals().selection.bg_fill } else { egui::Color32::TRANSPARENT };
+        egui::Frame::none()
+            .fill(bg_fill)
+            .show(ui, |ui| {
+                ui.add(egui::Label::new(&label).sense(sense).selectable(false))
+            })
+            .inner
+    });
+
+    let label_response = inner.inner;
+    let rect = label_response.rect;
+
+    // ── Drag initiation ──
+    if node.id != "Root" && label_response.drag_started() {
+        *drag_source = Some(node.id.clone());
+        *drag_hover = None; // reset hover target
+    }
+
+    // ── Drag release detection ──
+    if is_drag_source && label_response.drag_stopped() {
+        *drag_ended = true;
+    }
+
+    // ── Drop target detection during drag ──
+    // Root can only be AsChild target (can't be Before/After Root)
+    if is_dragging && !is_drag_source {
+        if let Some(pointer_pos) = ui.input(|i| i.pointer.hover_pos()) {
+            if rect.contains(pointer_pos) {
+                let pos = if node.id == "Root" {
+                    InsertPosition::AsChild
+                } else {
+                    let local_y = (pointer_pos.y - rect.top()) / rect.height();
+                    if local_y < 0.3 {
+                        InsertPosition::Before
+                    } else if local_y > 0.7 {
+                        InsertPosition::After
+                    } else {
+                        InsertPosition::AsChild
+                    }
+                };
+                *drag_hover = Some(node.id.clone());
+                *drag_position = pos;
+            }
+        }
+    }
+
+    // ── Visual feedback: draw drop indicator ──
+    if is_dragging && !is_drag_source {
+        // Check if this node is the hover target
+        if drag_hover.as_deref() == Some(&node.id) {
+            let painter = ui.painter();
+            match drag_position {
+                InsertPosition::Before => {
+                    painter.line_segment(
+                        [rect.left_top(), rect.right_top()],
+                        (DROP_LINE_HEIGHT, DROP_HIGHLIGHT_COLOR),
+                    );
+                }
+                InsertPosition::After => {
+                    painter.line_segment(
+                        [rect.left_bottom(), rect.right_bottom()],
+                        (DROP_LINE_HEIGHT, DROP_HIGHLIGHT_COLOR),
+                    );
+                }
+                InsertPosition::AsChild => {
+                    painter.rect_stroke(
+                        rect.expand(1.0),
+                        egui::Rounding::same(2.0),
+                        egui::Stroke::new(2.0, DROP_HIGHLIGHT_COLOR),
+                    );
+                }
+            }
+        }
+    }
+
+    // ── Selection on click ──
+    if label_response.clicked() {
+        _pivot_selection.take(); // clear any pivot selection
         let ctrl = ui.input(|i| i.modifiers.ctrl);
         if ctrl {
             if multi_selection.contains(&node.id) {
@@ -271,30 +456,45 @@ fn tree_node(ui: &mut egui::Ui, node: &GeometryNode, selection: &mut Option<Stri
             multi_selection.clear();
         }
     }
-    if response.double_clicked() {
+
+    // ── Double-click to edit sketch ──
+    if label_response.double_clicked() {
         if matches!(node.node_type, GeometryNodeType::Sketch(_)) {
             *pending_edit = Some(node.id.clone());
         }
     }
+
+    // ── Context menu ──
     if node.id != "Root" {
-        response.context_menu(|ui| {
-            if ui.button("Delete").clicked() {
+        label_response.context_menu(|menu_ui: &mut egui::Ui| {
+            if menu_ui.button("Delete").clicked() {
                 *delete_target = Some(node.id.clone());
-                ui.close_menu();
+                menu_ui.close_menu();
             }
         });
     }
-    // Recurse into Fillet/Chamfer children
+
+    // ── Recurse into children (Fillet/Chamfer inline, others indented) ──
     if matches!(node.node_type, GeometryNodeType::Fillet(_) | GeometryNodeType::Chamfer(_)) {
         for child in &node.children {
-            tree_node(ui, child, selection, multi_selection, pending_edit, delete_target, hidden_nodes);
+            tree_node(
+                ui, child, &node.id,
+                selection, multi_selection, _pivot_selection,
+                pending_edit, delete_target, hidden_nodes,
+                drag_source, drag_hover, drag_position, drag_ended,
+            );
         }
     }
 
     if !node.children.is_empty() {
         ui.indent(node.id.clone(), |ui| {
             for child in &node.children {
-                tree_node(ui, child, selection, multi_selection, pending_edit, delete_target, hidden_nodes);
+                tree_node(
+                    ui, child, &node.id,
+                    selection, multi_selection, _pivot_selection,
+                    pending_edit, delete_target, hidden_nodes,
+                    drag_source, drag_hover, drag_position, drag_ended,
+                );
             }
         });
     }
@@ -314,5 +514,79 @@ fn node_type_name(nt: &GeometryNodeType) -> &'static str {
         GeometryNodeType::Chamfer(_) => "Chamfer",
         GeometryNodeType::Assembly(_) => "Assembly",
         GeometryNodeType::Compound => "Group",
+        GeometryNodeType::JointGroup => "Joint Group",
     }
+}
+
+/// Compute the target parent ID and insert index for a drop operation.
+fn compute_drop_params(
+    scene: &GeometryNode,
+    hover_id: &str,
+    position: InsertPosition,
+) -> (Option<String>, Option<usize>) {
+    match position {
+        InsertPosition::Before | InsertPosition::After => {
+            // Need parent of the hovered node
+            if let Some((parent, idx)) = kpe_parametric::find_parent_and_index(scene, hover_id) {
+                let insert_idx = match position {
+                    InsertPosition::Before => idx,
+                    InsertPosition::After => idx + 1,
+                    _ => idx,
+                };
+                (Some(parent.id.clone()), Some(insert_idx))
+            } else {
+                (None, None)
+            }
+        }
+        InsertPosition::AsChild => {
+            // Target parent is the hovered node itself
+            (Some(hover_id.to_string()), Some(0))
+        }
+    }
+}
+
+/// Check if `descendant_id` is a descendant of `ancestor_id` in the scene tree.
+fn is_descendant_of(
+    node: &GeometryNode,
+    ancestor_id: &str,
+    descendant_id: &str,
+) -> bool {
+    if node.id == ancestor_id {
+        return find_child_by_id_any_depth(node, descendant_id);
+    }
+    for child in &node.children {
+        if is_descendant_of(child, ancestor_id, descendant_id) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Recursively search for a node by ID anywhere in the subtree.
+fn find_child_by_id_any_depth(node: &GeometryNode, target: &str) -> bool {
+    for child in &node.children {
+        if child.id == target || find_child_by_id_any_depth(child, target) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Check if moving `src_id` to `target_parent_id` at `index` would change anything.
+fn is_valid_index(scene: &GeometryNode, src_id: &str, target_parent_id: &str, index: usize) -> bool {
+    if target_parent_id == src_id {
+        return false;
+    }
+    // If target parent is the current parent, check if index is the same
+    if let Some((parent, current_idx)) = kpe_parametric::find_parent_and_index(scene, src_id) {
+        if parent.id == target_parent_id {
+            // Dropping at same index is a no-op
+            // Removing src shifts later indices down by 1
+            let effective_idx = if current_idx < index { index - 1 } else { index };
+            if effective_idx == current_idx {
+                return false;
+            }
+        }
+    }
+    true
 }

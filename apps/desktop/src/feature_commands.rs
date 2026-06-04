@@ -110,21 +110,35 @@ pub fn add_joint(state: &mut crate::app::AppState, selected_ids: &Option<String>
     let parent = kpe_parametric::commands::find_parent(&state.document.recipe.scene, &child_id);
     let parent_id = parent.map(|p| p.id.clone()).unwrap_or_else(|| "Root".to_string());
 
-    let joint_id = format!("Joint_{}", state.document.recipe.joints.len() + 1);
+    let dof_count = match &state.new_joint_type {
+        kpe_schema::joint::JointType::Revolute { .. }
+        | kpe_schema::joint::JointType::Prismatic { .. }
+        | kpe_schema::joint::JointType::Screw { .. } => 1,
+        kpe_schema::joint::JointType::Cylindrical { .. }
+        | kpe_schema::joint::JointType::Universal { .. } => 2,
+        kpe_schema::joint::JointType::Ball => 3,
+        kpe_schema::joint::JointType::Planar { .. } => 3,
+        kpe_schema::joint::JointType::Fixed => 0,
+        kpe_schema::joint::JointType::SixDOF => 6,
+    };
     let joint = kpe_schema::joint::Joint {
-        id: joint_id,
+        id: format!("Joint_{}", state.document.recipe.joints.len() + 1),
         joint_type: state.new_joint_type.clone(),
         parent_id,
         child_id,
-        pivot: state.new_joint_pivot,
-        axis: state.new_joint_axis,
+        parent_frame: state.new_joint_parent_frame,
+        child_frame: state.new_joint_child_frame,
         limits: Some(kpe_schema::joint::JointLimits {
-            min: -180.0,
-            max: 180.0,
-            damping: None,
-            stiffness: None,
+            primary: kpe_schema::joint::DofLimits {
+                min: -180.0,
+                max: 180.0,
+                stiffness: None,
+                damping: None,
+            },
+            secondary: None,
+            tertiary: None,
         }),
-        current_value: 0.0,
+        current_values: vec![0.0; dof_count],
     };
     state.execute(build_add_joint_command(&state.document.to_scene(), joint));
 }

@@ -188,6 +188,89 @@ pub fn render_sketch(
             gizmos.sphere(mid, 0.06, Color::srgb(0.0, 1.0, 0.0));
         }
     }
+
+    // ── Marquee selection rectangle ──────────────────────────────────
+    if let (Some((sx, sy)), Some((ex, ey))) = (editor.marquee_start, editor.marquee_end) {
+        let p1 = to_3d(sx, sy, plane);
+        let p2 = to_3d(ex, sy, plane);
+        let p3 = to_3d(ex, ey, plane);
+        let p4 = to_3d(sx, ey, plane);
+        let is_crossing = sx > ex;
+        let color = if is_crossing {
+            Color::srgb(0.0, 0.9, 0.3) // Green = crossing
+        } else {
+            Color::srgb(0.2, 0.5, 1.0) // Blue = window
+        };
+        let fill = color.with_alpha(0.08);
+        // Draw rect outline
+        gizmos.line(p1, p2, color);
+        gizmos.line(p2, p3, color);
+        gizmos.line(p3, p4, color);
+        gizmos.line(p4, p1, color);
+        // Draw fill
+        let corners = [p1, p2, p3, p4];
+        for i in 0..4 {
+            let j = (i + 1) % 4;
+            gizmos.line(corners[i], corners[j], fill);
+        }
+    }
+
+    // ── Hover highlight ──────────────────────────────────────────────
+    if let Some(hid) = editor.hovered_entity {
+        let hover_color = Color::srgb(0.2, 0.9, 0.9);
+        // Check if it's a point
+        if editor.document.points.iter().any(|p| p.id == hid) {
+            if let Some(p) = editor.document.points.iter().find(|p| p.id == hid) {
+                let pos = to_3d(p.x, p.y, plane);
+                gizmos.sphere(pos, 0.08, hover_color);
+            }
+        }
+        // Check if it's a line
+        if let Some(l) = editor.document.lines.iter().find(|l| l.id == hid) {
+            if let (Some(s), Some(e)) = (
+                editor.document.points.iter().find(|p| p.id == l.start),
+                editor.document.points.iter().find(|p| p.id == l.end),
+            ) {
+                let a = to_3d(s.x, s.y, plane);
+                let b = to_3d(e.x, e.y, plane);
+                gizmos.line(a, b, hover_color);
+            }
+        }
+        // Check if it's a circle
+        if let Some(c) = editor.document.circles.iter().find(|c| c.id == hid) {
+            if let Some(center) = editor.document.points.iter().find(|p| p.id == c.center) {
+                let pos = to_3d(center.x, center.y, plane);
+                draw_circle_lines(&mut gizmos, pos, right, forward, c.radius as f32, hover_color);
+            }
+        }
+    }
+
+    // ── OSnap feedback indicator ─────────────────────────────────────
+    if let Some(ref snap) = editor.snap_feedback {
+        let sp = to_3d(snap.x, snap.y, plane);
+        let snap_color = Color::srgb(0.0, 1.0, 0.8);
+        // Outer ring
+        gizmos.sphere(sp, 0.07, snap_color);
+        // Cross-hair
+        gizmos.line(sp - Vec3::X * 0.12, sp + Vec3::X * 0.12, snap_color);
+        gizmos.line(sp - Vec3::Y * 0.12, sp + Vec3::Y * 0.12, snap_color);
+    }
+
+    // ── Ortho active indicator ───────────────────────────────────────
+    if editor.ortho_enabled {
+        // Draw a small indicator at the origin point showing ortho is active.
+        // Full guide lines require cursor position (computed in input.rs).
+        if let Some((ox, oy)) = editor.line_start.or(editor.circle_center).or(editor.arc_center) {
+            let from = to_3d(ox, oy, plane);
+            let ortho_color = Color::srgb(0.2, 0.7, 0.2);
+            // L-shaped guide mark at origin
+            let s = 0.15;
+            gizmos.line(from - Vec3::X * s, from + Vec3::X * s, ortho_color);
+            gizmos.line(from - Vec3::Y * s, from + Vec3::Y * s, ortho_color);
+            // Small cross for ortho indicator
+            gizmos.sphere(from, 0.04, ortho_color);
+        }
+    }
 }
 
 fn draw_circle_lines(gizmos: &mut Gizmos, center: Vec3, right: Vec3, forward: Vec3, radius: f32, color: Color) {

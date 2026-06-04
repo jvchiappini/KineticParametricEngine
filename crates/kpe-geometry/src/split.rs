@@ -1,12 +1,47 @@
+use crate::predicates::{self, EPSILON};
 use glam::DVec3;
-use crate::predicates::EPSILON;
 
-/// Split `tri` with the infinite line that passes through `seg[0]` and `seg[1]`,
-/// lying in the plane defined by `normal`.
-///
-/// Returns up to 3 sub-triangles that tile the original, all with the same
-/// winding order as the input.  Returns `vec![tri]` unchanged if the segment
-/// does not properly cross the triangle.
+fn orient2d_bare(ax: f64, ay: f64, bx: f64, by: f64, cx: f64, cy: f64) -> f64 {
+    (ax - cx) * (by - cy) - (bx - cx) * (ay - cy)
+}
+
+fn project_2d(v: DVec3, normal: DVec3) -> (f64, f64) {
+    let u = if normal.x.abs() > normal.y.abs() {
+        if normal.x.abs() > normal.z.abs() {
+            (1, 2)
+        } else {
+            (0, 1)
+        }
+    } else {
+        if normal.y.abs() > normal.z.abs() {
+            (0, 2)
+        } else {
+            (0, 1)
+        }
+    };
+    match u {
+        (0, 1) => (v.x, v.y),
+        (1, 2) => (v.y, v.z),
+        (0, 2) => (v.x, v.z),
+        _ => (v.x, v.y),
+    }
+}
+
+fn orient_sign_2d(p: (f64, f64), q: (f64, f64), r: (f64, f64)) -> i8 {
+    let o = robust::orient2d(
+        robust::Coord { x: p.0, y: p.1 },
+        robust::Coord { x: q.0, y: q.1 },
+        robust::Coord { x: r.0, y: r.1 },
+    );
+    if o == 0.0 {
+        0
+    } else if o > 0.0 {
+        1
+    } else {
+        -1
+    }
+}
+
 pub fn split_triangle_with_normal(
     tri: [DVec3; 3],
     seg: [DVec3; 2],
@@ -15,79 +50,77 @@ pub fn split_triangle_with_normal(
     let p = seg[0];
     let q = seg[1];
 
-    if (q - p).length_squared() < EPSILON * EPSILON {
+    if (p - q).length_squared() < EPSILON * EPSILON {
         return vec![tri];
     }
 
-    // In-plane normal of the split line: perpendicular to q−p within the triangle plane.
-    let perp = normal.cross(q - p);
-    if perp.length_squared() < EPSILON * EPSILON {
-        return vec![tri]; // degenerate segment direction
-    }
+    let t0 = project_2d(tri[0], normal);
+    let t1 = project_2d(tri[1], normal);
+    let t2 = project_2d(tri[2], normal);
+    let pp = project_2d(p, normal);
+    let pq = project_2d(q, normal);
 
-    // Signed distance of each vertex from the split line.
-    let d = [
-        perp.dot(tri[0] - p),
-        perp.dot(tri[1] - p),
-        perp.dot(tri[2] - p),
+    let sides = [
+        orient_sign_2d(pp, pq, t0),
+        orient_sign_2d(pp, pq, t1),
+        orient_sign_2d(pp, pq, t2),
     ];
 
-    let sign_of = |v: f64| -> i8 {
-        if v > EPSILON { 1 } else if v < -EPSILON { -1 } else { 0 }
-    };
-    let sides = [sign_of(d[0]), sign_of(d[1]), sign_of(d[2])];
+    let pos: Vec<usize> = sides
+        .iter()
+        .enumerate()
+        .filter(|(_, &s)| s == 1)
+        .map(|(i, _)| i)
+        .collect();
+    let neg: Vec<usize> = sides
+        .iter()
+        .enumerate()
+        .filter(|(_, &s)| s == -1)
+        .map(|(i, _)| i)
+        .collect();
 
-    let has_pos = sides.iter().any(|&s| s > 0);
-    let has_neg = sides.iter().any(|&s| s < 0);
-    if !has_pos || !has_neg {
-        return vec![tri]; // all on one side — nothing to split
+    if pos.is_empty() || neg.is_empty() {
+        return vec![tri];
     }
 
-    // Locate the lone vertex (the one isolated on its own side of the cut).
-    let lone_is_pos = sides.iter().filter(|&&s| s > 0).count() == 1;
-    let lone = if lone_is_pos {
-        (0..3).find(|&i| sides[i] > 0).unwrap()
+    let mut fragments = Vec::new();
+
+    if pos.len() == 1 && neg.len() == 2 {
+        let lone = pos[0];
+        let p0 = neg[0];
+        let p1 = neg[1];
+
+        fragments.push([tri[lone], p, q]);
+
+        fragments.push([tri[p0], tri[p1], q]);
+        fragments.push([tri[p0], q, p]);
+    } else if neg.len() == 1 && pos.len() == 2 {
+        let lone = neg[0];
+        let p0 = pos[0];
+        let p1 = pos[1];
+
+        fragments.push([tri[lone], q, p]);
+
+        fragments.push([tri[p0], tri[p1], p]);
+        fragments.push([tri[p0], p, q]);
     } else {
-        (0..3).find(|&i| sides[i] < 0).unwrap()
-    };
-    let next = (lone + 1) % 3;
-    let prev = (lone + 2) % 3;
-
-    // Interpolate the two crossing points on the triangle's edges.
-    // c0: crossing on edge  lone → next
-    let c0 = {
-        let denom = d[lone] - d[next];
-        if denom.abs() < 1e-30 { return vec![tri]; }
-        tri[lone] + (tri[next] - tri[lone]) * (d[lone] / denom)
-    };
-    // c1: crossing on edge  prev → lone
-    let c1 = {
-        let denom = d[prev] - d[lone];
-        if denom.abs() < 1e-30 { return vec![tri]; }
-        tri[prev] + (tri[lone] - tri[prev]) * (d[prev] / denom)
-    };
-
-    if (c0 - c1).length_squared() < EPSILON * EPSILON {
         return vec![tri];
     }
 
-    // Three sub-triangles that partition the original and preserve winding:
-    //
-    //   lone-side (tip):      [tri[lone], c0,         c1          ]
-    //   quad first half:      [c0,        tri[next],  tri[prev]   ]
-    //   quad second half:     [c0,        tri[prev],  c1          ]
-    //
-    // Verified correct CCW ordering by cross-product for arbitrary lone index.
-    let candidates = [
-        [tri[lone], c0, c1],
-        [c0, tri[next], tri[prev]],
-        [c0, tri[prev], c1],
-    ];
+    fragments.retain(|tri| {
+        let a = tri[0];
+        let b = tri[1];
+        let c = tri[2];
+        let e01 = (a - b).length_squared();
+        let e12 = (b - c).length_squared();
+        let e20 = (c - a).length_squared();
+        e01 > EPSILON
+            && e12 > EPSILON
+            && e20 > EPSILON
+            && (b - a).cross(c - a).length_squared() > EPSILON * EPSILON
+    });
 
-    // Drop any degenerate slivers.
-    candidates.into_iter().filter(|t| {
-        (t[1] - t[0]).cross(t[2] - t[0]).length_squared() > EPSILON * EPSILON
-    }).collect()
+    fragments
 }
 
 pub fn split_mesh_triangles(
@@ -97,8 +130,8 @@ pub fn split_mesh_triangles(
     other_vertices: &[DVec3],
     other_triangles: &[[u32; 3]],
 ) -> (Vec<DVec3>, Vec<[u32; 3]>) {
-    use std::collections::HashMap;
     use crate::intersection::{triangle_triangle_intersection, TriTriIntersection};
+    use std::collections::HashMap;
 
     let mut split_tris: Vec<Option<Vec<[u32; 3]>>> = vec![None; triangles.len()];
     let mut new_verts: Vec<DVec3> = vertices.to_vec();
@@ -127,12 +160,16 @@ pub fn split_mesh_triangles(
 
             let mut next_fragments = Vec::new();
             for frag in fragments {
-                // Use the intersection segment to define where to cut `frag`.
-                // No need to sort seg endpoints — the split is defined by the
-                // infinite line through both points so order is irrelevant.
-                if let TriTriIntersection::Segment(seg) =
+                if let TriTriIntersection::Segment(mut seg) =
                     triangle_triangle_intersection(frag, t_b)
                 {
+                    seg.sort_by(|a, b| {
+                        a.x.partial_cmp(&b.x)
+                            .unwrap()
+                            .then(a.y.partial_cmp(&b.y).unwrap())
+                            .then(a.z.partial_cmp(&b.z).unwrap())
+                    });
+
                     let new_frags = split_triangle_with_normal(frag, seg, normal);
                     next_fragments.extend(new_frags);
                 } else {
@@ -150,14 +187,13 @@ pub fn split_mesh_triangles(
                     let found = new_verts
                         .iter()
                         .position(|nv| (*nv - v).length_squared() < EPSILON * EPSILON);
-                    let idx = if let Some(pos) = found {
-                        pos as u32
+                    if let Some(pos) = found {
+                        tri_idx.push(pos as u32);
                     } else {
                         let pos = new_verts.len();
                         new_verts.push(v);
-                        pos as u32
-                    };
-                    tri_idx.push(idx);
+                        tri_idx.push(pos as u32);
+                    }
                 }
                 if tri_idx.len() == 3 {
                     frag_indices.push([tri_idx[0], tri_idx[1], tri_idx[2]]);

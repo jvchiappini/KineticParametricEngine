@@ -1,4 +1,5 @@
 pub mod features;
+pub mod pivot;
 
 use kpe_schema::geometry::{
     BoxDef, CylinderDef, GeometryNode, GeometryNodeType, SketchDef, SphereDef,
@@ -190,12 +191,13 @@ fn apply_param(node: &mut GeometryNode, target: &str, name: &str, value: f64) {
         GeometryNodeType::Cylinder(c) => match name {
             "radius" => c.radius = value,
             "height" => c.height = value,
+            "segments" => c.segments = (value.round() as u32).max(3),
             _ => {}
         },
-        GeometryNodeType::Sphere(s) => {
-            if name == "radius" {
-                s.radius = value;
-            }
+        GeometryNodeType::Sphere(s) => match name {
+            "radius" => s.radius = value,
+            "segments" => s.segments = (value.round() as u32).max(6),
+            _ => {}
         }
         GeometryNodeType::Extrude(e) => match name {
             "distance" => e.distance = value,
@@ -339,28 +341,81 @@ impl Command for AddJointCommand {
     }
 }
 
-/// Command to change a joint's current value.
+/// Command to change a joint's current value(s).
+///
+/// Supports multi-DOF joints by storing the full `JointValues` vector.
 pub struct SetJointValueCommand {
     pub joint_id: String,
-    pub old_value: f64,
-    pub new_value: f64,
+    pub old_values: kpe_schema::joint::JointValues,
+    pub new_values: kpe_schema::joint::JointValues,
 }
 
 impl Command for SetJointValueCommand {
     fn execute(&mut self, scene: &mut GeometryScene) {
         if let Some(j) = scene.joints.iter_mut().find(|j| j.id == self.joint_id) {
-            j.current_value = self.new_value;
+            j.current_values = self.new_values.clone();
         }
     }
 
     fn undo(&mut self, scene: &mut GeometryScene) {
         if let Some(j) = scene.joints.iter_mut().find(|j| j.id == self.joint_id) {
-            j.current_value = self.old_value;
+            j.current_values = self.old_values.clone();
         }
     }
 
     fn description(&self) -> &str {
         "Set Joint Value"
+    }
+}
+
+/// Command to modify a joint's metadata (type, limits, frames, parent/child).
+pub struct ModifyJointCommand {
+    pub joint_id: String,
+    pub old_joint: Joint,
+    pub new_joint: Joint,
+}
+
+impl ModifyJointCommand {
+    pub fn new(scene: &GeometryScene, new_joint: Joint) -> Option<Self> {
+        let old_joint = scene.joints.iter().find(|j| j.id == new_joint.id)?.clone();
+        Some(Self { joint_id: new_joint.id.clone(), old_joint, new_joint })
+    }
+}
+
+impl Command for ModifyJointCommand {
+    fn execute(&mut self, scene: &mut GeometryScene) {
+        if let Some(j) = scene.joints.iter_mut().find(|j| j.id == self.joint_id) {
+            std::mem::swap(j, &mut self.new_joint);
+        }
+    }
+
+    fn undo(&mut self, scene: &mut GeometryScene) {
+        if let Some(j) = scene.joints.iter_mut().find(|j| j.id == self.joint_id) {
+            std::mem::swap(j, &mut self.old_joint);
+        }
+    }
+
+    fn description(&self) -> &str {
+        "Modify Joint"
+    }
+}
+
+/// Command to remove a joint by ID.
+pub struct RemoveJointCommand {
+    pub joint: Joint,
+}
+
+impl Command for RemoveJointCommand {
+    fn execute(&mut self, scene: &mut GeometryScene) {
+        scene.joints.retain(|j| j.id != self.joint.id);
+    }
+
+    fn undo(&mut self, scene: &mut GeometryScene) {
+        scene.joints.push(self.joint.clone());
+    }
+
+    fn description(&self) -> &str {
+        "Remove Joint"
     }
 }
 
@@ -399,9 +454,9 @@ pub fn add_box_command(scene: &GeometryScene) -> Box<dyn Command> {
     let node = GeometryNode {
         id: new_id,
         node_type: GeometryNodeType::Box(BoxDef {
-            width: 2.0,
-            height: 2.0,
-            depth: 2.0,
+            width: 100.0,   // 100 mm
+            height: 100.0,
+            depth: 100.0,
         }),
         transform: None,
         children: vec![],
@@ -421,8 +476,9 @@ pub fn add_cylinder_command(scene: &GeometryScene) -> Box<dyn Command> {
     let node = GeometryNode {
         id: new_id,
         node_type: GeometryNodeType::Cylinder(CylinderDef {
-            radius: 1.0,
-            height: 3.0,
+            radius: 50.0,   // 50 mm radius
+            height: 100.0,  // 100 mm height
+            segments: 64,
         }),
         transform: None,
         children: vec![],
@@ -441,7 +497,10 @@ pub fn add_sphere_command(scene: &GeometryScene) -> Box<dyn Command> {
     let new_id = format!("Sphere_{:03}", next_counter(&scene.scene, "Sphere_"));
     let node = GeometryNode {
         id: new_id,
-        node_type: GeometryNodeType::Sphere(SphereDef { radius: 1.5 }),
+        node_type: GeometryNodeType::Sphere(SphereDef {
+            radius: 50.0,   // 50 mm radius
+            segments: 32,
+        }),
         transform: None,
         children: vec![],
         operations: vec![],
@@ -468,6 +527,7 @@ pub fn add_sketch_command(scene: &GeometryScene) -> Box<dyn Command> {
             }],
             plane: kpe_schema::geometry::SketchPlane::XY,
             extrude: None,
+            face_hierarchy: None,
         }),
         transform: None,
         children: vec![],
@@ -482,6 +542,241 @@ pub fn add_sketch_command(scene: &GeometryScene) -> Box<dyn Command> {
 
 fn determine_target(_scene: &GeometryScene) -> String {
     "Root".to_string()
+}
+
+/// Find the index of a child node within a parent's children list.
+pub fn find_child_index<'a>(
+    parent: &'a GeometryNode,
+    child_id: &str,
+) -> Option<usize> {
+    parent.children.iter().position(|c| c.id == child_id)
+}
+
+/// Recursively find the parent of a node and its index in the parent's children.
+pub fn find_parent_and_index<'a>(
+    node: &'a GeometryNode,
+    target: &str,
+) -> Option<(&'a GeometryNode, usize)> {
+    if let Some(idx) = find_child_index(node, target) {
+        return Some((node, idx));
+    }
+    for child in &node.children {
+        if let found @ Some(_) = find_parent_and_index(child, target) {
+            return found;
+        }
+    }
+    None
+}
+
+/// Reparent a node from its current parent to a new parent at a given index.
+/// Panics on invalid node IDs (should be validated before calling).
+pub fn reparent_node(
+    scene: &mut GeometryScene,
+    source_id: &str,
+    target_parent_id: &str,
+    insert_index: usize,
+) -> (String, usize) {
+    // 1. Snapshot the old parent and index before removal
+    let (old_parent_id, old_index) = find_parent_and_index(&scene.scene, source_id)
+        .map(|(parent, idx)| (parent.id.clone(), idx))
+        .expect("Source node not found in tree");
+
+    // 2. Find and remove the source node from its current parent
+    let source_node = remove_node_by_id(&mut scene.scene, source_id)
+        .expect("Source node not found for removal");
+
+    // 3. Insert into the target parent
+    let target_parent = find_node_mut(&mut scene.scene, target_parent_id)
+        .expect("Target parent not found");
+
+    let clamped_index = insert_index.min(target_parent.children.len());
+    target_parent.children.insert(clamped_index, source_node);
+
+    (old_parent_id, old_index)
+}
+
+/// Remove a node from the tree by ID, returning the node if found.
+pub fn remove_node_by_id(node: &mut GeometryNode, target: &str) -> Option<GeometryNode> {
+    if let Some(idx) = node.children.iter().position(|c| c.id == target) {
+        return Some(node.children.remove(idx));
+    }
+    for child in &mut node.children {
+        if let found @ Some(_) = remove_node_by_id(child, target) {
+            return found;
+        }
+    }
+    None
+}
+
+// ── MoveNodeTransformCommand ───────────────────────────────────────
+
+/// Command to change the translation of a node.
+///
+/// Stores both old and new translation so the operation is fully undoable.
+/// `None` means the node had/has no explicit translation (i.e. identity).
+#[derive(Clone)]
+pub struct MoveNodeTransformCommand {
+    pub node_id: String,
+    pub old_translation: Option<[f64; 3]>,
+    pub new_translation: [f64; 3],
+}
+
+impl Command for MoveNodeTransformCommand {
+    fn execute(&mut self, scene: &mut GeometryScene) {
+        set_node_translation(&mut scene.scene, &self.node_id, self.new_translation);
+    }
+
+    fn undo(&mut self, scene: &mut GeometryScene) {
+        if let Some(old) = self.old_translation {
+            set_node_translation(&mut scene.scene, &self.node_id, old);
+        } else {
+            clear_node_translation(&mut scene.scene, &self.node_id);
+        }
+    }
+
+    fn description(&self) -> &str {
+        "Move Node Transform"
+    }
+}
+
+pub fn set_node_translation(root: &mut GeometryNode, target: &str, translation: [f64; 3]) {
+    // Iterative DFS to avoid recursion depth issues during compilation.
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.id != target {
+            stack.extend(node.children.iter_mut());
+            continue;
+        }
+        node.transform.get_or_insert_with(|| kpe_schema::geometry::TransformOp {
+            translation: None, rotation: None, scale: None, pivots: Vec::new(),
+        }).translation = Some(translation);
+        return;
+    }
+}
+
+/// Directly set a parameter on a node by ID (live drag without command wrapping).
+///
+/// Supported parameter names per node type:
+/// - Box: `"width"`, `"height"`, `"depth"`
+/// - Cylinder: `"radius"`, `"height"`, `"segments"`
+/// - Sphere: `"radius"`, `"segments"`
+/// - Extrude: `"distance"`, `"taper_angle"`
+/// - Revolve: `"angle"`
+pub fn set_node_parameter(root: &mut GeometryNode, target: &str, name: &str, value: f64) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.id != target {
+            stack.extend(node.children.iter_mut());
+            continue;
+        }
+        apply_param_inner(node, name, value);
+        return;
+    }
+}
+
+/// Internal helper that matches the parameter name to the actual field.
+/// (Mirrors `apply_param` but operates on a single node.)
+fn apply_param_inner(node: &mut GeometryNode, name: &str, value: f64) {
+    use kpe_schema::geometry::{GeometryNodeType::*};
+    match &mut node.node_type {
+        Box(b) => match name {
+            "width" => b.width = value,
+            "height" => b.height = value,
+            "depth" => b.depth = value,
+            _ => {}
+        },
+        Cylinder(c) => match name {
+            "radius" => c.radius = value,
+            "height" => c.height = value,
+            "segments" => c.segments = (value.round() as u32).max(3),
+            _ => {}
+        },
+        Sphere(s) => match name {
+            "radius" => s.radius = value,
+            "segments" => s.segments = (value.round() as u32).max(6),
+            _ => {}
+        },
+        Extrude(e) => match name {
+            "distance" => e.distance = value,
+            "taper_angle" => e.taper_angle = if value == 0.0 { None } else { Some(value) },
+            _ => {}
+        },
+        Revolve(r) => {
+            if name == "angle" {
+                r.angle = value;
+            }
+        }
+        _ => {}
+    }
+}
+
+fn clear_node_translation(root: &mut GeometryNode, target: &str) {
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.id != target {
+            stack.extend(node.children.iter_mut());
+            continue;
+        }
+        if let Some(ref mut t) = node.transform {
+            t.translation = None;
+        }
+        return;
+    }
+}
+
+/// Read the current translation of a node by ID. Returns `None` if the node
+/// has no explicit translation (identity).
+pub fn get_node_translation<'a>(root: &'a GeometryNode, target: &str) -> Option<[f64; 3]> {
+    // Iterative DFS to avoid recursion depth issues during compilation.
+    let mut stack = vec![root];
+    while let Some(node) = stack.pop() {
+        if node.id == target {
+            return node.transform.as_ref().and_then(|t| t.translation);
+        }
+        stack.extend(node.children.iter());
+    }
+    None
+}
+
+// ── MoveNodeCommand (reparent/reorder) ─────────────────────────────
+
+/// Command to move (reparent/reorder) a node in the scene tree.
+pub struct MoveNodeCommand {
+    /// ID of the node being moved.
+    pub source_id: String,
+    /// ID of the target parent node.
+    pub target_parent_id: String,
+    /// Index in the target parent's children to insert at.
+    pub insert_index: usize,
+    // --- undo state (filled after execute) ---
+    pub old_parent_id: String,
+    pub old_index: usize,
+}
+
+impl Command for MoveNodeCommand {
+    fn execute(&mut self, scene: &mut GeometryScene) {
+        let (old_parent_id, old_index) = reparent_node(
+            scene,
+            &self.source_id,
+            &self.target_parent_id,
+            self.insert_index,
+        );
+        self.old_parent_id = old_parent_id;
+        self.old_index = old_index;
+    }
+
+    fn undo(&mut self, scene: &mut GeometryScene) {
+        reparent_node(
+            scene,
+            &self.source_id,
+            &self.old_parent_id,
+            self.old_index,
+        );
+    }
+
+    fn description(&self) -> &str {
+        "Move node"
+    }
 }
 
 #[cfg(test)]

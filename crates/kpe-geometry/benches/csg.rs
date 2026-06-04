@@ -20,7 +20,7 @@ fn make_box() -> TriangleMesh {
 fn make_cylinder(segments: u32) -> TriangleMesh {
     let node = GeometryNode {
         id: "cyl".into(),
-        node_type: GeometryNodeType::Cylinder(CylinderDef { radius: 1.0, height: 3.0 }),
+        node_type: GeometryNodeType::Cylinder(CylinderDef { radius: 1.0, height: 3.0, segments }),
         transform: None,
         children: vec![],
         operations: vec![],

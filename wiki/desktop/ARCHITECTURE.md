@@ -12,7 +12,16 @@ Update (each frame):
   sync::sync_meshes()              → Bevy mesh/material sync (skips hidden nodes)
   camera::orbit_camera_system()    → mouse orbit/zoom, view presets (1-4), fit-all (F)
   keyboard_shortcuts()             → Ctrl+C/X/V/Z/Y/D/A/S, Delete
-  viewport_selection()             → ray-AABB picking on left-click
+  view_preset_handler()            → deferred view preset from UI button
+  build_tool::tool_shortcut_system → Space/R/C/L/P/M/E for tool switching; ESC to cancel/cancel
+  viewport_selection()             → ray-AABB picking (ONLY when BuildTool::Select active)
+  face_pick_system()               → ray-triangle face selection (ONLY when PushPull tool or shift+click)
+  push_pull_drag_system()          → drag-to-extrude when face selected
+  draw_selected_face_system()      → turquoise gizmo on selected face
+  rect_tool_system()               → click-click rectangle creation (ONLY when Rect active)
+  circle_tool_system()             → click-click circle creation (ONLY when Circle active)
+  tool_render_system()             → gizmo previews for active tool (rubber-band rect/circle)
+  tool_palette_ui_system()         → egui floating tool palette window
   auto_save_system()               → 120s timer → %APPDATA%/KPE/kpe_autosave.kpe
   update_window_title()            → "KPE Desktop - Filename*"
   viewport_grid()                  → ground-plane grid via gizmos
@@ -31,6 +40,8 @@ Update (each frame):
 | Resource | Type | Description |
 |----------|------|-------------|
 | `AppState` | `ResMut` | Document, history, dialogs, mesh generation counter |
+| `BuildToolState` | `ResMut` | Active build tool (Select/Rect/Circle/Line/PushPull/Move/Eraser), tool phase, inference text |
+| `PushPullState` | `ResMut` | Face selection state, drag origin, accumulated extrusion distance |
 | `MeshCache` | `ResMut` | Bevy Mesh handles, entities, materials per node |
 | `SketchEditorState` | `ResMut` | Active sketch document, tool, selection |
 | `GizmoState` | `ResMut` | 3D gizmo mode/selection |
@@ -43,19 +54,77 @@ Update (each frame):
 
 ```
 ──────────────────────────────────────────────────────┐
-│  TopBottomPanel::top("toolbar")                      │
-├──────┬───────────────────────────┬──────────────────┤
-│Left  │                           │   Right           │
-│Panel │     3D Viewport           │   Panel           │
-│scene │     (Bevy Camera)         │   properties      │
-│tree  │     + grid + axis gizmos  │                   │
-│      │                           │                   │
-├──────┴───────────────────────────┴──────────────────┤
-│  TopBottomPanel::bottom("status_bar")                │
-└─────────────────────────────────────────────────────┘
+│  TopBottomPanel::top("toolbar")  (main menu bar)     │
+├────────┬───────────────────────────┬─────────────────┤
+│Tool    │                           │                 │
+│Palette │     3D Viewport           │   Properties    │
+│floating│     (Bevy Camera)         │   Panel         │
+│window  │     + grid + axis gizmos  │   (right side)  │
+│(top-   │     + tool preview gizmos │                 │
+│left)   │                           │                 │
+├────────┴───────────────────────────┴─────────────────┤
+│  TopBottomPanel::bottom("status_bar")                 │
+└──────────────────────────────────────────────────────┘
 ```
 
-When sketch editor is active, only `status_bar` is shown; sketch has its own `TopBottomPanel::top("sketch_toolbar")` and `SidePanel::right("sketch_constraints")`.
+When sketch editor is active, only `status_bar` is shown; sketch has its own panels.
+When build tools are active, a floating tool palette (minimal, 7 buttons) appears at top-left (220px offset, 42px from top).
+
+## BuildTool System
+
+The `build_tool` module implements SketchUp-style direct 3D manipulation:
+
+### Tools and Keyboard Shortcuts
+
+| Tool | Key | Behavior |
+|------|-----|----------|
+| Select | Space | Existing AABB ray-picking for node selection |
+| Rectangle | R | Click 1 → infer construction plane → Click 2 → create `BoxDef(width, depth, 0.01)` |
+| Circle | C | Click 1 → center + plane → Click 2 → create `CylinderDef(radius, 0.01)` |
+| Line | L | Click → click → ... → create polyline segments (scaffolded, not implemented) |
+| PushPull | P | Click face → drag → extrude mesh or adjust parametric height |
+| Move | M | Click node → drag → translate (scaffolded, not implemented) |
+| Eraser | E | Click entity → delete node (scaffolded, not implemented) |
+| ESC | — | Cancel current tool phase, or return to Select |
+
+### Construction Plane Inference
+
+1. On first click, `infer_plane()` ray-picks the closest face via `pick_face()` (Möller–Trumbore against all scene meshes)
+2. The hit face normal becomes the construction plane normal
+3. Fallback: ground plane (Y=0) at the ray intersection point
+4. `ConstructionPlane { origin, normal, u_axis, v_axis }` provides `project()`, `to_2d()`, `intersect_ray()`
+
+### Tool Gating
+
+Each tool system checks `BuildToolState.active_tool` before responding to clicks:
+
+- `viewport_selection` → only when `BuildTool::Select`
+- `face_pick_system` → when `BuildTool::PushPull` OR shift+click
+- `rect_tool_system` → when `BuildTool::Rectangle`
+- `circle_tool_system` → when `BuildTool::Circle`
+
+## Face Picking + Push-Pull System
+
+The `push_pull_system` module provides face-level ray-triangle picking and mesh extrusion:
+
+```
+face_pick_system:
+  1. Gate: PushPull tool active OR shift+click
+  2. Ray-triangle test (Möller–Trumbore) against ALL scene meshes
+  3. Closest hit → record (node_id, face_index, world_hit, face_normal)
+  4. Store original mesh for clean re-extrusion
+
+push_pull_drag_system:
+  1. Project mouse ray onto plane (drag_origin, face_normal)
+  2. Signed distance along normal → extrusion distance (snapped to 1mm)
+  3. Re-extrude from original mesh each frame (no error accumulation)
+  4. On release: finalize mesh, trigger sync
+
+draw_selected_face_system:
+  1. Gizmo wireframe (turquoise) on selected face
+  2. Double-line glow effect
+  3. Hidden during active drag
+```
 
 ## Mesh workflow
 
@@ -72,7 +141,7 @@ AppState::mark_dirty()
 ## Viewport selection (ray-AABB)
 
 ```
-viewport_selection (on left-click, not in panel areas):
+viewport_selection (on left-click, NOT in panel areas, ONLY when Select tool active):
   1. Cast ray from camera through cursor
   2. For each mesh entity with MeshNodeId + Aabb + GlobalTransform:
      a. Transform ray to model local space via inverse matrix
@@ -95,7 +164,7 @@ CommandHistory:
   redo() → pop redo_stack, cmd.execute(), push to undo_stack
 ```
 
-All mutations (including Group/Assembly/Fillet/Chamfer wraps) now go through CommandHistory.
+All tool-created nodes (Rectangle → BoxDef, Circle → CylinderDef) go through `AddFeatureCommand` via `AppState::execute()`, making them fully undoable.
 
 ## Scene tree evaluation
 

@@ -9,4 +9,4 @@ kpe-schema = { path = "../kpe-schema" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
-meval = "0.2"
+evalexpr = "11"

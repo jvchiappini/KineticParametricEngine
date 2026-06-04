@@ -1,5 +1,50 @@
 # Data Flow — End to End
 
+> **Note (Junio 2026):** The BuildTool system (`build_tool/mod.rs`) provides an alternative entry path: user clicks in the 3D viewport to create parametric nodes directly, bypassing the JSON/recipe load path. See Flow A (BuildTool) and Flow B (PushPull) below.
+
+## Flow A — BuildTool (Direct 3D Creation)
+```
+User clicks in 3D viewport (Rectangle/Circle tool)
+  │
+  ▼
+build_tool module
+  ├── rect_tool_system / circle_tool_system
+  ├── 1. Infer construction plane (face normal or ground)
+  ├── 2. Create GeometryNode { BoxDef or CylinderDef }
+  └── 3. AppState::execute(AddFeatureCommand)
+  │
+  ▼
+CommandHistory::execute(cmd)
+  ├── cmd.execute(scene) → add_child("Root", new_node)
+  ├── document.apply_scene(gs) → write back to recipe
+  ├── document.evaluate_all() → recompute meshes
+  └── state.mark_dirty() → mesh_gen++
+  │
+  ▼
+sync::sync_meshes → Bevy GPU mesh update
+```
+
+## Flow B — PushPull (Face Extrusion)
+```
+User clicks face with PushPull tool → drag
+  │
+  ▼
+push_pull_system::face_pick_system
+  ├── Möller–Trumbore ray-triangle → face_idx
+  └── Store (node_id, face_idx, original_mesh)
+  │
+  ▼
+push_pull_system::push_pull_drag_system
+  ├── Project mouse onto face-normal plane
+  ├── Signed distance → extrude_face(mesh, face_idx, dist)
+  └── store in state.document.evaluated.meshes[node_id]
+  │
+  ▼
+state.mark_dirty() → sync_meshes → Bevy GPU update
+```
+
+## Flow C — Traditional Parametric (JSON Recipe)
+
 ```
 User edits parameters in UI / loads recipe JSON (apps/web or apps/cli)
   │

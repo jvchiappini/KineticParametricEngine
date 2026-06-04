@@ -2,8 +2,71 @@ use bevy::prelude::*;
 use kpe_geometry::sketch::document::SketchDocument;
 use kpe_geometry::sketch::entities::EntityId;
 use kpe_geometry::sketch::constraints::Constraint;
+use kpe_geometry::sketch::inference::SnapResult;
+use kpe_geometry::sketch::polar_tracking::PolarSnap;
+use kpe_geometry::sketch::dynamic_input::DynamicInput;
 use kpe_schema::geometry::{SketchDef, SketchPlane, SketchPrimitive};
 use super::solver;
+
+/// Which snap types are active.  Mirrors the `OsnapEngine` priority chain.
+#[derive(Debug, Clone)]
+pub struct OsnapSettings {
+    pub endpoint: bool,
+    pub midpoint: bool,
+    pub center: bool,
+    pub quadrant: bool,
+    pub intersection: bool,
+    pub on_entity: bool,
+}
+
+impl Default for OsnapSettings {
+    fn default() -> Self {
+        Self {
+            endpoint: true,
+            midpoint: true,
+            center: true,
+            quadrant: true,
+            intersection: true,
+            on_entity: true,
+        }
+    }
+}
+
+/// Current phase of a multi-step tool (e.g. continuous line).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ToolPhase {
+    Idle,
+    Place,
+}
+
+impl Default for ToolPhase {
+    fn default() -> Self { Self::Idle }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum EntityKind {
+    Point(EntityId),
+    Line(EntityId),
+    Circle(EntityId),
+    Arc(EntityId),
+}
+
+#[derive(Clone)]
+pub struct PendingExtrude {
+    pub distance: f64,
+    pub taper_angle: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum SketchTool {
+    Select,
+    Line,
+    Circle,
+    Arc,
+    Measure,
+}
+
+impl Default for SketchTool { fn default() -> Self { Self::Select } }
 
 #[derive(Resource)]
 pub struct SketchEditorState {
@@ -36,34 +99,26 @@ pub struct SketchEditorState {
     pub pending_extrude: Option<PendingExtrude>,
     pub pending_finish: bool,
     pub pending_cancel: bool,
+    // ── OSnap & Ortho ──
+    pub osnap_settings: OsnapSettings,
+    pub ortho_enabled: bool,
+    pub polar_enabled: bool,
+    pub tool_phase: ToolPhase,
+    pub snap_feedback: Option<SnapResult>,
+    pub hovered_entity: Option<EntityId>,
+    pub cursor_tooltip: String,
+    // ── DynamicInput (distance/angle overrides) ──
+    pub dynamic_input: DynamicInput,
+    // ── Polar tracking (from kpe-geometry) ──
+    pub polar_snap: PolarSnap,
+    // ── Marquee selection ──
+    pub marquee_start: Option<(f64, f64)>,
+    pub marquee_end: Option<(f64, f64)>,
+    // ── Tool-specific options ──
+    pub circle_diameter_mode: bool,
     undo_stack: Vec<SketchDocument>,
     redo_stack: Vec<SketchDocument>,
 }
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum EntityKind {
-    Point(EntityId),
-    Line(EntityId),
-    Circle(EntityId),
-    Arc(EntityId),
-}
-
-#[derive(Clone)]
-pub struct PendingExtrude {
-    pub distance: f64,
-    pub taper_angle: f64,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum SketchTool {
-    Select,
-    Line,
-    Circle,
-    Arc,
-    Measure,
-}
-
-impl Default for SketchTool { fn default() -> Self { Self::Select } }
 
 impl SketchEditorState {
     pub fn new() -> Self {
@@ -97,6 +152,18 @@ impl SketchEditorState {
             pending_finish: false,
             pending_cancel: false,
             dof_status: Vec::new(),
+            osnap_settings: OsnapSettings::default(),
+            ortho_enabled: false,
+            polar_enabled: false,
+            tool_phase: ToolPhase::Idle,
+            snap_feedback: None,
+            hovered_entity: None,
+            cursor_tooltip: String::new(),
+            dynamic_input: DynamicInput::new(),
+            polar_snap: PolarSnap::default(),
+            marquee_start: None,
+            marquee_end: None,
+            circle_diameter_mode: false,
             undo_stack: Vec::new(),
             redo_stack: Vec::new(),
         }
@@ -204,6 +271,17 @@ impl SketchEditorState {
         self.pending_extrude = None;
         self.pending_finish = false;
         self.pending_cancel = false;
+        self.osnap_settings = OsnapSettings::default();
+        self.ortho_enabled = false;
+        self.polar_enabled = false;
+        self.tool_phase = ToolPhase::Idle;
+        self.snap_feedback = None;
+        self.hovered_entity = None;
+        self.cursor_tooltip.clear();
+        self.dynamic_input.clear();
+        self.marquee_start = None;
+        self.marquee_end = None;
+        self.circle_diameter_mode = false;
         self.undo_stack.clear();
         self.redo_stack.clear();
 
@@ -263,7 +341,7 @@ impl SketchEditorState {
             }
             prims
         };
-        let sketch_def = SketchDef { primitives, plane: self.plane.clone(), extrude: None };
+        let sketch_def = SketchDef { primitives, plane: self.plane.clone(), extrude: None, face_hierarchy: None };
         self.active = false;
         Some((node_id, sketch_def))
     }

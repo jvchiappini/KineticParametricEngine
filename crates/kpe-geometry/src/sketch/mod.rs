@@ -6,6 +6,12 @@ pub mod boolean;
 pub mod document;
 pub mod spatial;
 pub mod plane;
+pub mod dcel;
+pub mod face_tree;
+pub mod polar_tracking;
+pub mod dynamic_input;
+pub mod intersections;
+pub mod osnap;
 
 use kpe_schema::geometry::{Sketch2D, SketchDef, SketchPrimitive};
 use glam::DVec2;
@@ -18,6 +24,12 @@ pub use solver::{Solver, analyze_dof};
 pub use inference::{InferenceEngine, SnapResult};
 pub use boolean::{boolean_contours, BooleanOp, extrude_contour_to_3d};
 pub use document::SketchDocument;
+pub use dcel::{extract_regions, LineSegment, polygon_area};
+pub use face_tree::FaceTreeBuilder;
+pub use polar_tracking::{PolarSnap, PolarSnapResult};
+pub use dynamic_input::{DynamicInput, DynamicResult};
+pub use intersections::*;
+pub use osnap::{OsnapEngine, SnapFilter};
 
 pub struct SketchEngine;
 
